@@ -19,6 +19,7 @@ else()
     list(APPEND BOARD_SRCS
         "board_cardputer.c"
         "cardputer_keyboard.c"
+        "cardputer_keymap.c"
         "ssh_app_mode.c"
         "cmd_ccleste_builtin.c"
         "../../breezybox-cardputer/apps/ccleste/player.c"

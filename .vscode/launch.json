@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ESP32-S3 USB JTAG Debug",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/breezybox-firmware/build/breezybox_cardputer.elf",
+      "cwd": "${workspaceFolder}",
+
+      "MIMode": "gdb",
+      "miDebuggerPath": "xtensa-esp32s3-elf-gdb",
+
+      "miDebuggerServerAddress": "localhost:3333",
+    }
+  ]
+}

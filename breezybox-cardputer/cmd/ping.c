@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "lwip/ip_addr.h"
+#include "lwip/inet.h"
+#include "lwip/netdb.h"
 
 typedef struct {
     SemaphoreHandle_t done;
@@ -81,35 +84,33 @@ static void ping_on_end(esp_ping_handle_t hdl, void *args)
 
 static int resolve_ping_target(const char *host, ip_addr_t *target_addr)
 {
-    struct sockaddr_in6 sock_addr6;
     struct addrinfo hint = {0};
     struct addrinfo *res = NULL;
 
     memset(target_addr, 0, sizeof(*target_addr));
-    if (inet_pton(AF_INET6, host, &sock_addr6.sin6_addr) == 1) {
-        return ipaddr_aton(host, target_addr) ? 0 : -1;
-    }
 
     if (ipaddr_aton(host, target_addr)) {
         return 0;
     }
 
+    hint.ai_family = AF_UNSPEC;
+    hint.ai_socktype = SOCK_RAW;
+
     if (getaddrinfo(host, NULL, &hint, &res) != 0 || !res) {
         return -1;
     }
 
-#if CONFIG_LWIP_IPV4
     if (res->ai_family == AF_INET) {
-        struct in_addr addr4 = ((struct sockaddr_in *)(res->ai_addr))->sin_addr;
-        inet_addr_to_ip4addr(ip_2_ip4(target_addr), &addr4);
+        struct sockaddr_in *addr4 = (struct sockaddr_in *)res->ai_addr;
+        inet_addr_to_ip4addr(ip_2_ip4(target_addr), &addr4->sin_addr);
         freeaddrinfo(res);
         return 0;
     }
-#endif
+
 #if CONFIG_LWIP_IPV6
     if (res->ai_family == AF_INET6) {
-        struct in6_addr addr6 = ((struct sockaddr_in6 *)(res->ai_addr))->sin6_addr;
-        inet6_addr_to_ip6addr(ip_2_ip6(target_addr), &addr6);
+        struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)res->ai_addr;
+        inet6_addr_to_ip6addr(ip_2_ip6(target_addr), &addr6->sin6_addr);
         freeaddrinfo(res);
         return 0;
     }

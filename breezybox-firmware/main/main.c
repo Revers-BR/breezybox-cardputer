@@ -279,10 +279,10 @@ int cmd_btconnect(int argc, char **argv) {
         printf("Bluetooth keyboard already connected\n");
         return 0;
     }
-    if (!bt_keyboard_has_saved_target()) {
-        printf("No saved keyboard. Run 'btscan' first.\n");
-        return 1;
-    }
+    // if (!bt_keyboard_has_saved_target()) {
+    //     printf("No saved keyboard. Run 'btscan' first.\n");
+    //     return 1;
+    // }
 
     printf("Reconnecting to saved keyboard...\n");
     if (bt_keyboard_connect_native() != ESP_OK) {
