@@ -5,6 +5,7 @@
 #if !defined(BREEZY_SLIM)
 #include <libssh/libssh.h>
 #endif
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -53,6 +54,13 @@ void breezybox_set_extra_commands(const esp_console_cmd_t *cmds, size_t count);
 void breezybox_set_extra_help_entries(const breezybox_help_entry_t *entries, size_t count);
 const esp_console_cmd_t *breezybox_find_command(const char *cmd);
 const breezybox_help_entry_t *breezybox_find_help_entry(const char *cmd);
+
+/* Where shell history is kept, or NULL when saving is disabled. Prefers the SD
+ * card, which survives reflashing. */
+const char *breezybox_history_path(void);
+
+/* Turn history saving on or off; persisted in NVS, which survives reflashing. */
+bool breezybox_history_set_enabled(bool on);
 
 /**
  * @brief Force-export symbols for ELF runtime linking

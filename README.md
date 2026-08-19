@@ -12,7 +12,7 @@
 * I/O Redirection: Support for >, >>, <, and pipes |
 * Script Execution: Run shell scripts from files with sh
 * Tab/Hint Completion: Command completion via linenoise and hint autocomplete for some command options
-* History: Arrow key navigation through command history
+* History: Arrow key navigation through command history, saved to the SD card so it survives reflashing (`history path`, `history off`)
 * WiFi Commands: wifi scan, wifi connect, wifi status, saved credentials
 * Scrollback: Ctrl+arrow to view paged scrollback
 * HTTP Server: Built-in file server with httpd

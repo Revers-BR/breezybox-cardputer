@@ -16,7 +16,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define HISTORY_FILE BREEZYBOX_MOUNT_POINT "/.history"
 #define EXEC_PATH "/root/bin"
 #define EXTRA_PATH_BUF (BREEZYBOX_MAX_PATH * 2 + 2)
 
@@ -747,10 +746,57 @@ int cmd_unset(int argc, char **argv)
 
 int cmd_history(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
-    FILE *f = fopen(HISTORY_FILE, "r");
+    if (argc > 1 && (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "off") == 0)) {
+        bool on = strcmp(argv[1], "on") == 0;
+        if (!breezybox_history_set_enabled(on)) {
+            printf("history: could not save the setting\n");
+            return 1;
+        }
+        const char *p = breezybox_history_path();
+        if (on) {
+            printf("history saving on (%s)\n", p ? p : "?");
+        } else {
+            printf("history saving off (this session still remembers)\n");
+        }
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "clear") == 0) {
+        const char *p = breezybox_history_path();
+        if (p) {
+            remove(p);
+        }
+        printf("history cleared\n");
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "path") == 0) {
+        const char *p = breezybox_history_path();
+        if (!p) {
+            printf("history saving is off\n");
+        } else {
+            printf("%s%s\n", p,
+                   strncmp(p, BREEZYBOX_SD_MOUNT_POINT,
+                           strlen(BREEZYBOX_SD_MOUNT_POINT)) == 0
+                       ? "  (survives reflash)"
+                       : "  (wiped by make flash)");
+        }
+        return 0;
+    }
+
+    if (argc > 1) {
+        printf("usage: history [clear|on|off|path]\n");
+        return 1;
+    }
+
+    const char *path = breezybox_history_path();
+    if (!path) {
+        printf("history saving is off\n");
+        return 0;
+    }
+    FILE *f = fopen(path, "r");
     if (!f) {
+        printf("(no history yet)\n");
         return 0;
     }
     char line[256];
