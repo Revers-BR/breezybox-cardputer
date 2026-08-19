@@ -3,6 +3,7 @@
 #include "claw_config.h"
 #include "claw_session.h"
 #include "claw_sse.h"
+#include "claw_tools.h"
 
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
@@ -24,8 +25,12 @@ static const char *TAG = "claw";
 #define CLAW_REQ_SD     "/sd/claw/tmp/req.json"
 #define CLAW_REQ_FLASH  "/root/.claw_req.json"
 
+/* Upstream esp-claw stops at 10. The cap exists so a model that keeps calling
+ * tools cannot spend the user's money or the device's battery indefinitely. */
+#define CLAW_MAX_TOOL_ROUNDS 8
+
 /* Where the shipped package lives, for backend CA files. Mirrors the search
- * order in cmd/claw.c so a working copy on the card wins. */
+ * order used elsewhere so a working copy on the card wins. */
 static const char *k_install_dirs[] = {
     "/sd/espclaw",
     "/sd/apps/espclaw",
@@ -35,16 +40,24 @@ static const char *k_install_dirs[] = {
 typedef struct {
     const claw_backend_t *backend;
     claw_result_t *res;
-    bool  in_error_body;      /* status was not 2xx: collect, do not parse */
-    char  error_body[512];
+
+    bool   in_error_body;     /* status was not 2xx: collect, do not parse */
+    char   error_body[512];
     size_t error_body_len;
 
-    /* The reply is echoed to the console as it streams, and also collected here
-     * so it can be appended to the transcript. Bounded: a reply longer than
-     * this is shown in full but stored truncated, which keeps the heap flat. */
+    /* The reply is echoed as it streams and also collected, so it can be
+     * appended to the transcript. Bounded: a longer reply is shown in full but
+     * stored truncated, which keeps the heap flat. */
     char  *reply;
     size_t reply_len;
     size_t reply_cap;
+
+    /* One tool call per round. The loop runs again afterwards, which bounds
+     * memory and keeps the ordering obvious. */
+    bool   has_call;
+    char   call_name[64];
+    char   call_id[64];
+    cJSON *call_args;
 } stream_ctx_t;
 
 static void heap_line(const char *label)
@@ -114,6 +127,17 @@ static void on_sse_event(const char *event, const char *data, void *vctx)
         return;
     }
 
+    if (!ctx->has_call && ctx->backend->extract_tool_call) {
+        cJSON *args = NULL;
+        if (ctx->backend->extract_tool_call(event, obj,
+                                            ctx->call_name, sizeof(ctx->call_name),
+                                            ctx->call_id, sizeof(ctx->call_id),
+                                            &args)) {
+            ctx->has_call = true;
+            ctx->call_args = args;
+        }
+    }
+
     const char *text = ctx->backend->extract_text(event, obj);
     if (text && text[0]) {
         fputs(text, stdout);
@@ -136,7 +160,6 @@ static void on_sse_event(const char *event, const char *data, void *vctx)
 static bool write_body(const char *json, char *path_out, size_t path_len)
 {
     const char *candidates[] = { CLAW_REQ_SD, CLAW_REQ_FLASH };
-    /* Best-effort: the tmp dir may not exist yet. mkdir has no -p equivalent. */
     mkdir("/sd/claw", 0777);
     mkdir("/sd/claw/tmp", 0777);
 
@@ -156,49 +179,25 @@ static bool write_body(const char *json, char *path_out, size_t path_len)
     return false;
 }
 
-int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
+/*
+ * One request/response round.
+ *
+ * `messages` is borrowed. On return, *sctx holds the streamed reply and, if the
+ * model asked for one, a pending tool call for the caller to run.
+ */
+static int claw_round(const claw_backend_t *backend, const cJSON *messages,
+                      const char *api_key, bool verbose,
+                      claw_result_t *res, stream_ctx_t *sctx)
 {
-    claw_result_t local;
-    claw_result_t *res = out ? out : &local;
-    memset(res, 0, sizeof(*res));
-    res->status = -1;
-
-    if (!network_ready()) {
-        snprintf(res->error, sizeof(res->error),
-                 "no network. Run: wifi connect <ssid> <password>");
-        return 1;
-    }
-
-    char api_key[CLAW_CFG_MAX_VALUE];
-    const char *keyerr = NULL;
-    if (!claw_config_api_key(api_key, sizeof(api_key), &keyerr)) {
-        snprintf(res->error, sizeof(res->error), "%s", keyerr ? keyerr : "no API key");
-        return 1;
-    }
-
-    const claw_backend_t *backend = claw_backend_active();
-
-    /* --- build the request ------------------------------------------------ */
-    /* Record the user turn first, then replay: the new turn is simply the last
-     * line of the transcript, so there is one code path rather than two. */
-    if (!claw_session_append("user", prompt)) {
-        snprintf(res->error, sizeof(res->error), "cannot write to session transcript");
-        return 1;
-    }
-
-    size_t budget = (size_t)claw_config_get_int("context_budget", 6144);
-    cJSON *messages = claw_session_replay(budget);
-    if (!messages) {
-        snprintf(res->error, sizeof(res->error), "out of memory building request");
-        return 1;
-    }
-    res->turns = cJSON_GetArraySize(messages);
-
-    cJSON *body = backend->build_body(messages);   /* takes ownership */
+    cJSON *body = backend->build_body(messages);
     if (!body) {
         snprintf(res->error, sizeof(res->error), "could not build request body");
         return 1;
     }
+    if (backend->add_tools) {
+        backend->add_tools(body);
+    }
+
     char *json = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
     if (!json) {
@@ -215,12 +214,6 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         return 1;
     }
 
-    if (verbose) {
-        heap_line("before");
-    }
-    int64_t t0 = esp_timer_get_time();
-
-    /* --- send ------------------------------------------------------------- */
     char url[256];
     backend->endpoint(url, sizeof(url));
 
@@ -264,15 +257,8 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     }
     backend->headers(client, api_key);
 
-    stream_ctx_t sctx = { .backend = backend, .res = res };
-    sctx.reply_cap = CLAW_TURN_MAX + 1;
-    sctx.reply = calloc(1, sctx.reply_cap);
-    if (!sctx.reply) {
-        /* Not fatal: stream the reply, just do not remember it. */
-        ESP_LOGW(TAG, "no memory for reply buffer; this turn will not be saved");
-    }
     claw_sse_t parser;
-    claw_sse_init(&parser, on_sse_event, &sctx);
+    claw_sse_init(&parser, on_sse_event, sctx);
 
     int rc = 1;
     if (esp_http_client_open(client, body_len) != ESP_OK) {
@@ -307,7 +293,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         goto done;
     }
     res->status = esp_http_client_get_status_code(client);
-    sctx.in_error_body = (res->status < 200 || res->status >= 300);
+    sctx->in_error_body = (res->status < 200 || res->status >= 300);
 
     {
         char buf[CLAW_IO_CHUNK];
@@ -324,13 +310,11 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
             res->chunks++;
             res->bytes += (size_t)n;
 
-            if (sctx.in_error_body) {
-                /* An HTTP error body is plain JSON, not SSE. Buffer a bounded
-                 * amount so the API's own message can be reported. */
-                size_t space = sizeof(sctx.error_body) - 1 - sctx.error_body_len;
+            if (sctx->in_error_body) {
+                size_t space = sizeof(sctx->error_body) - 1 - sctx->error_body_len;
                 size_t copy = ((size_t)n < space) ? (size_t)n : space;
-                memcpy(sctx.error_body + sctx.error_body_len, buf, copy);
-                sctx.error_body_len += copy;
+                memcpy(sctx->error_body + sctx->error_body_len, buf, copy);
+                sctx->error_body_len += copy;
             } else {
                 claw_sse_feed(&parser, buf, (size_t)n);
             }
@@ -341,23 +325,19 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         claw_sse_finish(&parser);
     }
 
-    if (res->got_text) {
-        printf("\n");
-    }
-
-    if (sctx.in_error_body) {
-        sctx.error_body[sctx.error_body_len] = '\0';
+    if (sctx->in_error_body) {
+        sctx->error_body[sctx->error_body_len] = '\0';
         const char *msg = NULL;
         char errbuf[160];
-        cJSON *obj = cJSON_Parse(sctx.error_body);
+        cJSON *obj = cJSON_Parse(sctx->error_body);
         if (obj) {
             msg = backend->extract_error(obj, errbuf, sizeof(errbuf));
         }
         if (msg) {
             snprintf(res->error, sizeof(res->error), "HTTP %d - %s", res->status, msg);
-        } else if (sctx.error_body_len) {
+        } else if (sctx->error_body_len) {
             snprintf(res->error, sizeof(res->error), "HTTP %d - %.120s",
-                     res->status, sctx.error_body);
+                     res->status, sctx->error_body);
         } else {
             snprintf(res->error, sizeof(res->error), "HTTP %d", res->status);
         }
@@ -370,18 +350,158 @@ done:
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     free(ca_pem);
-    free(sctx.reply);
+    if (parser.truncated) {
+        ESP_LOGW(TAG, "an SSE field exceeded its buffer and was truncated");
+    }
+    (void)verbose;
+    return rc;
+}
+
+int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
+{
+    claw_result_t local;
+    claw_result_t *res = out ? out : &local;
+    memset(res, 0, sizeof(*res));
+    res->status = -1;
+
+    if (!network_ready()) {
+        snprintf(res->error, sizeof(res->error),
+                 "no network. Run: wifi connect <ssid> <password>");
+        return 1;
+    }
+
+    char api_key[CLAW_CFG_MAX_VALUE];
+    const char *keyerr = NULL;
+    if (!claw_config_api_key(api_key, sizeof(api_key), &keyerr)) {
+        snprintf(res->error, sizeof(res->error), "%s", keyerr ? keyerr : "no API key");
+        return 1;
+    }
+
+    const claw_backend_t *backend = claw_backend_active();
+
+    /* Record the user turn first, then replay: the new turn is simply the last
+     * line of the transcript, so there is one code path rather than two. */
+    if (!claw_session_append("user", prompt)) {
+        snprintf(res->error, sizeof(res->error), "cannot write to session transcript");
+        return 1;
+    }
+
+    size_t budget = (size_t)claw_config_get_int("context_budget", 6144);
+    cJSON *messages = claw_session_replay(budget);
+    if (!messages) {
+        snprintf(res->error, sizeof(res->error), "out of memory building request");
+        return 1;
+    }
+    res->turns = cJSON_GetArraySize(messages);
+
+    if (verbose) {
+        heap_line("before");
+    }
+    int64_t t0 = esp_timer_get_time();
+
+    char *reply = calloc(1, CLAW_TURN_MAX + 1);
+    if (!reply) {
+        ESP_LOGW(TAG, "no memory for reply buffer; this turn will not be saved");
+    }
+
+    int rc = 1;
+    char *tool_out = NULL;
+
+    /* Signature of the previous tool call. A model that gets an unusable result
+     * tends to retry the identical call; catching that turns a silent eight
+     * round burn into one clear message. */
+    char last_sig[256] = {0};
+
+    for (int round = 0; round < CLAW_MAX_TOOL_ROUNDS; round++) {
+        stream_ctx_t sctx = {
+            .backend   = backend,
+            .res       = res,
+            .reply     = reply,
+            .reply_cap = CLAW_TURN_MAX + 1,
+        };
+        /* Carry the accumulated reply across rounds: a model may narrate before
+         * and after a tool call, and both halves belong to one answer. */
+        sctx.reply_len = reply ? strlen(reply) : 0;
+
+        rc = claw_round(backend, messages, api_key, verbose, res, &sctx);
+
+        if (rc != 0 || !sctx.has_call) {
+            cJSON_Delete(sctx.call_args);
+            break;
+        }
+
+        /* --- run the tool ------------------------------------------------- */
+        res->tool_calls++;
+
+        if (!tool_out) {
+            tool_out = malloc(CLAW_TOOL_RESULT_MAX);
+            if (!tool_out) {
+                snprintf(res->error, sizeof(res->error), "out of memory for tool output");
+                cJSON_Delete(sctx.call_args);
+                rc = 1;
+                break;
+            }
+        }
+
+        /* name + arguments identify a call well enough to spot a repeat. */
+        char sig[256];
+        {
+            char *argstr = sctx.call_args ? cJSON_PrintUnformatted(sctx.call_args) : NULL;
+            snprintf(sig, sizeof(sig), "%s(%s)", sctx.call_name, argstr ? argstr : "");
+            if (argstr) {
+                cJSON_free(argstr);
+            }
+        }
+        if (last_sig[0] && strcmp(sig, last_sig) == 0) {
+            printf("\n[stopped: %s called twice with the same arguments]\n",
+                   sctx.call_name);
+            snprintf(res->error, sizeof(res->error),
+                     "the model repeated the same %s call; its result was probably "
+                     "not reaching it", sctx.call_name);
+            cJSON_Delete(sctx.call_args);
+            rc = 1;
+            break;
+        }
+        snprintf(last_sig, sizeof(last_sig), "%s", sig);
+
+        printf("\n[tool: %s]\n", sctx.call_name);
+        claw_tools_run(sctx.call_name, sctx.call_args, tool_out, CLAW_TOOL_RESULT_MAX);
+        if (verbose) {
+            printf("[result: %.120s%s]\n", tool_out,
+                   strlen(tool_out) > 120 ? "..." : "");
+        }
+
+        if (backend->append_tool_result) {
+            backend->append_tool_result(messages, sctx.call_name, sctx.call_id,
+                                        sctx.call_args, tool_out);
+        }
+        cJSON_Delete(sctx.call_args);
+
+        if (round == CLAW_MAX_TOOL_ROUNDS - 1) {
+            printf("\n[stopped: reached the %d tool-call limit]\n", CLAW_MAX_TOOL_ROUNDS);
+        }
+    }
+
+    if (res->got_text) {
+        printf("\n");
+    }
+
+    if (rc == 0 && reply && reply[0]) {
+        claw_session_append("assistant", reply);
+    }
+
+    free(reply);
+    free(tool_out);
+    cJSON_Delete(messages);
 
     res->elapsed_ms = (unsigned)((esp_timer_get_time() - t0) / 1000);
 
     if (verbose) {
         heap_line("after");
-        printf("[%u chunks, %u events, %u bytes, %u ms]\n",
+        printf("[%u chunks, %u events, %u bytes, %u ms, %d turns, %u tools]\n",
                (unsigned)res->chunks, (unsigned)res->events,
-               (unsigned)res->bytes, res->elapsed_ms);
-    }
-    if (parser.truncated) {
-        ESP_LOGW(TAG, "an SSE field exceeded its buffer and was truncated");
+               (unsigned)res->bytes, res->elapsed_ms, res->turns,
+               (unsigned)res->tool_calls);
     }
     return rc;
 }

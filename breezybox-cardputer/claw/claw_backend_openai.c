@@ -39,7 +39,7 @@ static bool wants_max_completion(const char *model)
     return strncmp(model, "gpt-5", 5) == 0;
 }
 
-static cJSON *body(cJSON *messages)
+static cJSON *body(const cJSON *messages)
 {
     char model[64];
     claw_backend_model(&claw_backend_openai, model, sizeof(model));
@@ -54,7 +54,7 @@ static cJSON *body(cJSON *messages)
     cJSON_AddNumberToObject(root,
                             wants_max_completion(model) ? "max_completion_tokens" : "max_tokens",
                             limit);
-    cJSON_AddItemToObject(root, "messages", messages);
+    cJSON_AddItemToObject(root, "messages", cJSON_Duplicate(messages, true));
     return root;
 }
 

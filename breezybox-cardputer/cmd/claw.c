@@ -14,6 +14,7 @@
 #include "claw_backend.h"
 #include "claw_config.h"
 #include "claw_models.h"
+#include "claw_tools.h"
 #include "claw_session.h"
 
 #include "esp_heap_caps.h"
@@ -29,7 +30,7 @@
 static const char *k_shown_keys[] = {
     "backend", "model.anthropic", "model.openai", "model.gemini",
     "max_tokens", "context_budget", "base_url", "ca_file",
-    "timeout_ms", "store", "anthropic.key", "openai.key", "gemini.key",
+    "timeout_ms", "auto_approve", "store", "anthropic.key", "openai.key", "gemini.key",
 };
 
 static int cmd_stats(void);
@@ -136,8 +137,36 @@ static int set_backend(const char *name)
     return 0;
 }
 
+/*
+ * Ask the user to approve a destructive action.
+ *
+ * Defaults to no: a bare Enter, an unreadable line, or anything that is not a
+ * clear yes declines. The model is told it was refused and can suggest
+ * something else.
+ */
+static bool console_confirm(const char *action, const char *detail)
+{
+    printf("\n");
+    printf("claw wants to %s:\n", action);
+    printf("  %s\n", detail ? detail : "(no detail)");
+
+    char *line = linenoise("allow? [y/N] ");
+    if (!line) {
+        printf("declined\n");
+        return false;
+    }
+    bool yes = (line[0] == 'y' || line[0] == 'Y');
+    linenoiseFree(line);
+    printf(yes ? "allowed\n" : "declined\n");
+    return yes;
+}
+
 static int run_turn(const char *prompt, bool verbose)
 {
+    /* Registered per turn so a non-interactive caller of the agent core never
+     * inherits an interactive prompt by accident. */
+    claw_tools_set_confirm(console_confirm);
+
     claw_result_t res;
     int rc = claw_agent_ask(prompt, verbose, &res);
     if (rc != 0 && res.error[0]) {

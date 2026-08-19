@@ -23,7 +23,7 @@ static void hdrs(esp_http_client_handle_t c, const char *key)
     esp_http_client_set_header(c, "x-api-key", key);
 }
 
-static cJSON *body(cJSON *messages)
+static cJSON *body(const cJSON *messages)
 {
     char model[64];
     claw_backend_model(&claw_backend_anthropic, model, sizeof(model));
@@ -35,7 +35,7 @@ static cJSON *body(cJSON *messages)
     cJSON_AddStringToObject(root, "model", model);
     cJSON_AddNumberToObject(root, "max_tokens", claw_config_get_int("max_tokens", 2048));
     cJSON_AddBoolToObject(root, "stream", true);
-    cJSON_AddItemToObject(root, "messages", messages);
+    cJSON_AddItemToObject(root, "messages", cJSON_Duplicate(messages, true));
     return root;
 }
 

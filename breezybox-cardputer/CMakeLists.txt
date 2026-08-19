@@ -57,6 +57,7 @@ idf_component_register(
         "claw/claw_models.c"
         "claw/claw_session.c"
         "claw/claw_sse.c"
+        "claw/claw_tools.c"
         "cmd/lua_https.c"
         "third_party/lua/onelua.c"
         ${BREEZYBOX_SSH_SRCS}

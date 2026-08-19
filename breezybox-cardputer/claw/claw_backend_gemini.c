@@ -11,6 +11,7 @@
  */
 #include "claw_backend.h"
 #include "claw_config.h"
+#include "claw_tools.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -38,22 +39,38 @@ static void hdrs(esp_http_client_handle_t c, const char *key)
 
 /* {role, content} -> contents/parts. System turns are hoisted into
  * systemInstruction, which is where Gemini wants them. */
-static cJSON *body(cJSON *messages)
+static cJSON *body(const cJSON *messages)
 {
     cJSON *root = cJSON_CreateObject();
     cJSON *contents = cJSON_CreateArray();
     if (!root || !contents) {
         cJSON_Delete(root);
         cJSON_Delete(contents);
-        cJSON_Delete(messages);
         return NULL;
     }
 
     cJSON *sys_text = NULL;
-    cJSON *m = NULL;
+    const cJSON *m = NULL;
     cJSON_ArrayForEach(m, messages) {
         cJSON *role = cJSON_GetObjectItemCaseSensitive(m, "role");
         cJSON *content = cJSON_GetObjectItemCaseSensitive(m, "content");
+
+        /*
+         * Two shapes share this array. Transcript turns are the neutral
+         * {role, content}; tool call/result turns are already Gemini-native
+         * {role, parts} and must be passed through untouched -- converting them
+         * would drop the functionCall/functionResponse and the model would see
+         * its tool result vanish, then call the tool again.
+         */
+        cJSON *native_parts = cJSON_GetObjectItemCaseSensitive(m, "parts");
+        if (cJSON_IsArray(native_parts)) {
+            cJSON *copy = cJSON_Duplicate(m, true);
+            if (copy) {
+                cJSON_AddItemToArray(contents, copy);
+            }
+            continue;
+        }
+
         const char *r = cJSON_IsString(role) ? role->valuestring : "user";
         const char *c = cJSON_IsString(content) ? content->valuestring : "";
 
@@ -79,7 +96,6 @@ static cJSON *body(cJSON *messages)
         cJSON_AddItemToObject(turn, "parts", parts);
         cJSON_AddItemToArray(contents, turn);
     }
-    cJSON_Delete(messages);   /* converted, not adopted */
 
     cJSON_AddItemToObject(root, "contents", contents);
 
@@ -133,6 +149,131 @@ static const char *text(const char *event, cJSON *obj)
     return NULL;
 }
 
+/* Gemini declares tools as functionDeclarations, each with a JSON schema. */
+static void add_tools(cJSON *body)
+{
+    cJSON *decls = cJSON_CreateArray();
+    if (!decls) {
+        return;
+    }
+    for (size_t i = 0; i < claw_tools_count(); i++) {
+        const claw_tool_t *t = claw_tools_at(i);
+        cJSON *d = cJSON_CreateObject();
+        if (!d) {
+            continue;
+        }
+        cJSON_AddStringToObject(d, "name", t->name);
+        cJSON_AddStringToObject(d, "description", t->description);
+        cJSON *schema = t->schema();
+        if (schema) {
+            cJSON_AddItemToObject(d, "parameters", schema);
+        }
+        cJSON_AddItemToArray(decls, d);
+    }
+
+    cJSON *tools = cJSON_CreateArray();
+    cJSON *entry = cJSON_CreateObject();
+    if (!tools || !entry) {
+        cJSON_Delete(decls);
+        cJSON_Delete(tools);
+        cJSON_Delete(entry);
+        return;
+    }
+    cJSON_AddItemToObject(entry, "functionDeclarations", decls);
+    cJSON_AddItemToArray(tools, entry);
+    cJSON_AddItemToObject(body, "tools", tools);
+}
+
+/* A call arrives whole inside a part, so there is no fragment reassembly here
+ * (unlike Anthropic and OpenAI, which stream the arguments). */
+static bool extract_tool_call(const char *event, cJSON *obj,
+                              char *name_out, size_t name_len,
+                              char *id_out, size_t id_len,
+                              cJSON **args_out)
+{
+    (void)event;
+    if (id_len) {
+        id_out[0] = '\0';         /* Gemini does not supply call ids */
+    }
+    *args_out = NULL;
+
+    cJSON *cands = cJSON_GetObjectItemCaseSensitive(obj, "candidates");
+    cJSON *first = cJSON_IsArray(cands) ? cJSON_GetArrayItem(cands, 0) : NULL;
+    if (!first) {
+        return false;
+    }
+    cJSON *content = cJSON_GetObjectItemCaseSensitive(first, "content");
+    cJSON *parts = content ? cJSON_GetObjectItemCaseSensitive(content, "parts") : NULL;
+
+    cJSON *part = NULL;
+    cJSON_ArrayForEach(part, parts) {
+        cJSON *fc = cJSON_GetObjectItemCaseSensitive(part, "functionCall");
+        if (!cJSON_IsObject(fc)) {
+            continue;
+        }
+        cJSON *nm = cJSON_GetObjectItemCaseSensitive(fc, "name");
+        if (!cJSON_IsString(nm)) {
+            continue;
+        }
+        snprintf(name_out, name_len, "%s", nm->valuestring);
+
+        cJSON *a = cJSON_GetObjectItemCaseSensitive(fc, "args");
+        *args_out = a ? cJSON_Duplicate(a, true) : cJSON_CreateObject();
+        return true;
+    }
+    return false;
+}
+
+/* The call goes back as a model turn, the result as a user turn holding a
+ * functionResponse part. */
+static void append_tool_result(cJSON *messages, const char *name, const char *id,
+                               const cJSON *args, const char *result)
+{
+    (void)id;
+
+    cJSON *call_turn = cJSON_CreateObject();
+    cJSON *call_parts = cJSON_CreateArray();
+    cJSON *call_part = cJSON_CreateObject();
+    cJSON *fc = cJSON_CreateObject();
+    if (call_turn && call_parts && call_part && fc) {
+        cJSON_AddStringToObject(fc, "name", name);
+        cJSON_AddItemToObject(fc, "args", args ? cJSON_Duplicate(args, true)
+                                               : cJSON_CreateObject());
+        cJSON_AddItemToObject(call_part, "functionCall", fc);
+        cJSON_AddItemToArray(call_parts, call_part);
+        cJSON_AddStringToObject(call_turn, "role", "model");
+        cJSON_AddItemToObject(call_turn, "parts", call_parts);
+        cJSON_AddItemToArray(messages, call_turn);
+    } else {
+        cJSON_Delete(call_turn);
+        cJSON_Delete(call_parts);
+        cJSON_Delete(call_part);
+        cJSON_Delete(fc);
+    }
+
+    cJSON *res_turn = cJSON_CreateObject();
+    cJSON *res_parts = cJSON_CreateArray();
+    cJSON *res_part = cJSON_CreateObject();
+    cJSON *fr = cJSON_CreateObject();
+    cJSON *resp = cJSON_CreateObject();
+    if (res_turn && res_parts && res_part && fr && resp) {
+        cJSON_AddStringToObject(resp, "result", result ? result : "");
+        cJSON_AddStringToObject(fr, "name", name);
+        cJSON_AddItemToObject(fr, "response", resp);
+        cJSON_AddItemToObject(res_part, "functionResponse", fr);
+        cJSON_AddItemToArray(res_parts, res_part);
+        cJSON_AddStringToObject(res_turn, "role", "user");
+        cJSON_AddItemToObject(res_turn, "parts", res_parts);
+        cJSON_AddItemToArray(messages, res_turn);
+    } else {
+        cJSON_Delete(res_turn);
+        cJSON_Delete(res_parts);
+        cJSON_Delete(res_part);
+        cJSON_Delete(fr);
+        cJSON_Delete(resp);
+    }
+}
+
 static const char *err(cJSON *obj, char *buf, size_t n)
 {
     cJSON *e = cJSON_GetObjectItemCaseSensitive(obj, "error");
@@ -163,4 +304,7 @@ const claw_backend_t claw_backend_gemini = {
     .build_body    = body,
     .extract_text  = text,
     .extract_error = err,
+    .add_tools     = add_tools,
+    .extract_tool_call  = extract_tool_call,
+    .append_tool_result = append_tool_result,
 };

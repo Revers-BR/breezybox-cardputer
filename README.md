@@ -133,6 +133,17 @@ Pager controls in `help` and `more`:
 - `Enter` = next line
 - `q` = quit
 
+## ESPClaw
+
+```
+claw
+claw> what files are on the sd card?
+claw> read /sd/claw/config.json and tell me which backend I'm using
+claw> write a haiku about pocket computers to /sd/haiku.txt
+claw> how much free memory does this device have?
+claw> run df and summarise it
+```
+
 ## StickS3 Input
 
 StickS3 uses an on-screen keyboard for text entry.

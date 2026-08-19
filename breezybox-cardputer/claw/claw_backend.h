@@ -35,15 +35,37 @@ typedef struct {
     void (*endpoint)(char *out, size_t out_len);
     void (*headers)(esp_http_client_handle_t client, const char *api_key);
 
-    /* Build the request body. `messages` is a JSON array of {role, content}.
-     * Returns an object the caller owns. */
-    cJSON *(*build_body)(cJSON *messages);
+    /* Build the request body. `messages` is a JSON array of {role, content},
+     * borrowed -- the agent loop reuses it across tool rounds, so an
+     * implementation must duplicate anything it keeps. Returns an object the
+     * caller owns. */
+    cJSON *(*build_body)(const cJSON *messages);
 
     /* Text to emit for one decoded event, or NULL. Points into `obj`. */
     const char *(*extract_text)(const char *event, cJSON *obj);
 
     /* An error carried inside the payload, or NULL. Writes into `buf`. */
     const char *(*extract_error)(cJSON *obj, char *buf, size_t buf_len);
+
+    /* --- tool calling. NULL on backends that do not support it yet. ------- */
+
+    /* Declare the registered tools on an outgoing request body. */
+    void (*add_tools)(cJSON *body);
+
+    /* Pull a tool call out of one decoded event. Returns true when this event
+     * carried a complete call. `id` distinguishes concurrent calls where the
+     * provider supplies one; it may be left empty.
+     * `args_out` receives an object the caller owns. */
+    bool (*extract_tool_call)(const char *event, cJSON *obj,
+                              char *name_out, size_t name_len,
+                              char *id_out, size_t id_len,
+                              cJSON **args_out);
+
+    /* Append the assistant's tool call and its result to a messages array, in
+     * whatever shape this provider expects to receive them back. */
+    void (*append_tool_result)(cJSON *messages,
+                               const char *name, const char *id,
+                               const cJSON *args, const char *result);
 } claw_backend_t;
 
 /* The three implementations. Declared here so each can reference its own

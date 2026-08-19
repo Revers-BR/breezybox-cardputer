@@ -19,6 +19,7 @@ typedef struct {
     size_t bytes;
     unsigned elapsed_ms;
     int    turns;         /* turns replayed into the request */
+    unsigned tool_calls;  /* tools executed while answering */
     bool   got_text;
     char   error[160];    /* empty when the turn succeeded */
 } claw_result_t;
