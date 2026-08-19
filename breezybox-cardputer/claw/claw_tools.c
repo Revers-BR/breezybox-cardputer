@@ -2,6 +2,10 @@
 #include "claw_config.h"
 #include "claw_memory.h"
 #include "breezy_exec.h"
+
+#include "driver/gpio.h"
+#include "driver/i2c.h"
+#include "freertos/FreeRTOS.h"
 #include "breezy_vfs.h"
 
 #include "esp_heap_caps.h"
@@ -462,58 +466,80 @@ static bool i2c_scan_run(const cJSON *args, char *out, size_t out_len)
         scl = (int)j->valuedouble;
     }
 
-    /* Reuse the Lua binding rather than duplicating the driver setup: it
-     * already handles bus install, teardown and the odd address ranges. */
-    char script[384];
     /*
-     * Release the pins afterwards. Leaving them driven keeps sinking current
-     * through whatever is attached, which on a port sharing the 5V rail can
-     * hold the supply down -- a scan has already been seen to brown out the
-     * board with an accessory connected.
+     * Done directly, with no filesystem involved.
+     *
+     * This previously staged a Lua script to the SD card and captured its
+     * output there. With an accessory loading the shared 5V rail, those writes
+     * timed out and took the board down with a cache panic during a flash
+     * operation. A scan that toggles two GPIOs should not depend on storage
+     * being healthy.
+     *
+     * Port 0: the Cardputer ADV keyboard controller sits on port 1.
      */
-    snprintf(script, sizeof(script),
-             "local b=require('breezy') "
-             "b.i2c.open(%d,%d,{freq=100000}) "
-             "local ok,d=pcall(b.i2c.scan) "
-             "b.i2c.close() "
-             "b.pin.mode(%d,'in') b.pin.mode(%d,'in') "
-             "if not ok then print('scan failed: '..tostring(d)) "
-             "elseif #d==0 then print('no I2C devices found') else "
-             "for _,a in ipairs(d) do print(string.format('0x%%02X',a)) end end",
-             sda, scl, sda, scl);
+    const i2c_port_t port = I2C_NUM_0;
 
-    mkdir("/sd/claw", 0777);
-    mkdir("/sd/claw/tmp", 0777);
-    const char *path = "/sd/claw/tmp/i2cscan.lua";
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        snprintf(out, out_len, "error: cannot stage the scan script");
+    i2c_config_t conf = {
+        .mode             = I2C_MODE_MASTER,
+        .sda_io_num       = sda,
+        .scl_io_num       = scl,
+        .sda_pullup_en    = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en    = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = 100000,
+    };
+
+    esp_err_t err = i2c_param_config(port, &conf);
+    if (err != ESP_OK) {
+        snprintf(out, out_len, "error: cannot configure I2C on G%d/G%d: %s",
+                 sda, scl, esp_err_to_name(err));
         return false;
     }
-    fwrite(script, 1, strlen(script), f);
-    fclose(f);
-
-    const char *outfile = "/sd/claw/tmp/i2cscan.txt";
-    char cmd[192];
-    snprintf(cmd, sizeof(cmd), "lua %s > %s", path, outfile);
-    breezybox_exec(cmd);
+    err = i2c_driver_install(port, I2C_MODE_MASTER, 0, 0, 0);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        snprintf(out, out_len, "error: cannot install I2C driver: %s",
+                 esp_err_to_name(err));
+        return false;
+    }
 
     size_t used = 0;
-    FILE *rf = fopen(outfile, "rb");
-    if (rf) {
-        used = fread(out, 1, out_len - 96, rf);
-        fclose(rf);
-        remove(outfile);
-    }
-    out[used] = '\0';
-    remove(path);
+    int found = 0;
+    for (uint8_t addr = 1; addr < 0x78; addr++) {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        if (!cmd) {
+            break;
+        }
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (uint8_t)((addr << 1) | I2C_MASTER_WRITE), true);
+        i2c_master_stop(cmd);
+        esp_err_t r = i2c_master_cmd_begin(port, cmd, pdMS_TO_TICKS(30));
+        i2c_cmd_link_delete(cmd);
 
-    if (used == 0) {
-        snprintf(out, out_len, "no output from the scan (is the bus wired?)");
+        if (r == ESP_OK) {
+            int w = snprintf(out + used, out_len - used, "0x%02X\n", addr);
+            if (w > 0 && (size_t)w < out_len - used) {
+                used += (size_t)w;
+            }
+            found++;
+        }
+    }
+
+    i2c_driver_delete(port);
+    /* Leave the pins floating rather than driven, so nothing keeps sinking
+     * current through whatever is attached. */
+    gpio_reset_pin((gpio_num_t)sda);
+    gpio_reset_pin((gpio_num_t)scl);
+
+    if (found == 0) {
+        snprintf(out, out_len,
+                 "no I2C devices on G%d/G%d.\n"
+                 "If something is plugged in, it may not be an I2C device -- "
+                 "addressable LED (NeoPixel) units take data on G2 and are "
+                 "driven with breezy.led, not scanned.",
+                 sda, scl);
         return true;
     }
-    snprintf(out + used, out_len - used,
-             "\n(scanned SDA=G%d SCL=G%d)", sda, scl);
+    snprintf(out + used, out_len - used, "(%d device%s on G%d/G%d)",
+             found, found == 1 ? "" : "s", sda, scl);
     return true;
 }
 
