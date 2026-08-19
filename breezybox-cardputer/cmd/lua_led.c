@@ -113,6 +113,24 @@ static int l_led_open(lua_State *L)
         return luaL_error(L, "cannot create encoder: %s", esp_err_to_name(err));
     }
 
+    /*
+     * Estimate the worst case and say so. A WS2812 draws roughly 60 mA at full
+     * white, and the Grove rail is shared with the CPU, screen and radio --
+     * whose transmit bursts already peak above 300 mA. Being told the number
+     * beforehand is better than discovering it as a brownout.
+     */
+    int worst_ma = (count * 60 * s_brightness) / 100;
+    if (worst_ma > 150) {
+        ESP_LOGW(TAG, "%d LEDs at %d%% can draw about %d mA at full white; "
+                      "the Grove rail is shared with the radio and screen. "
+                      "Power the strip separately, or lower the brightness.",
+                 count, s_brightness, worst_ma);
+        printf("note: %d LEDs at %d%% brightness can draw ~%d mA at full white.\n"
+               "      That may brown out the board. Lower the brightness, or\n"
+               "      power the strip from its own 5V supply sharing only GND.\n",
+               count, s_brightness, worst_ma);
+    }
+
     err = rmt_enable(s_chan);
     if (err != ESP_OK) {
         led_teardown();
