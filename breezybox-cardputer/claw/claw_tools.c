@@ -530,11 +530,20 @@ static bool i2c_scan_run(const cJSON *args, char *out, size_t out_len)
     gpio_reset_pin((gpio_num_t)scl);
 
     if (found == 0) {
+        /* Be directive, not just informative. Left to itself a model reads
+         * "no devices" as "nothing is connected" and gives up, when the actual
+         * situation is that this class of device cannot be detected at all. */
         snprintf(out, out_len,
-                 "no I2C devices on G%d/G%d.\n"
-                 "If something is plugged in, it may not be an I2C device -- "
-                 "addressable LED (NeoPixel) units take data on G2 and are "
-                 "driven with breezy.led, not scanned.",
+                 "No I2C devices on G%d/G%d.\n\n"
+                 "Important: addressable LED units (NeoPixel, WS2812, M5Stack "
+                 "Puzzle Unit / LED matrix) are NOT I2C devices and can never "
+                 "be detected by scanning -- they receive data on G2 and send "
+                 "nothing back. A scan finding nothing does not mean nothing is "
+                 "connected.\n\n"
+                 "If the user has said they have an LED unit, do not scan again. "
+                 "Drive it directly: call lua_api for the breezy.led reference, "
+                 "then run_lua. Start dim (brightness 5-10) because these units "
+                 "can draw more current than the board can supply.",
                  sda, scl);
         return true;
     }
@@ -572,16 +581,23 @@ static bool lua_api_run(const cJSON *args, char *out, size_t out_len)
         if (!f) {
             continue;
         }
-        size_t got = fread(out, 1, out_len - 48, f);
+        /* Name the file. A stale working copy on the card shadows the shipped
+         * reference, and a model reading an old API list concludes a module
+         * does not exist rather than that its copy is out of date. */
+        int hdr = snprintf(out, out_len, "(source: %s)\n", k_api_paths[i]);
+        size_t used = (hdr > 0) ? (size_t)hdr : 0;
+
+        size_t got = fread(out + used, 1, out_len - used - 48, f);
         long more = 0;
-        if (got == out_len - 48) {
+        if (got == out_len - used - 48) {
             fseek(f, 0, SEEK_END);
             more = ftell(f) - (long)got;
         }
         fclose(f);
-        out[got] = '\0';
+        used += got;
+        out[used] = '\0';
         if (more > 0) {
-            snprintf(out + got, 48, "\n[truncated, %ld more bytes]", more);
+            snprintf(out + used, 48, "\n[truncated, %ld more bytes]", more);
         }
         return true;
     }

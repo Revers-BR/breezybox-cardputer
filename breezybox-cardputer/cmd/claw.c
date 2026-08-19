@@ -572,6 +572,20 @@ static int cmd_stats(void)
         }
     }
     printf("  memory     %d stored\n", claw_memory_count());
+    {
+        /* A working copy on the card shadows the shipped files; if it is old,
+         * the model is reading a stale API reference. */
+        static const char *const dirs[] = { "/sd/espclaw", "/sd/apps/espclaw" };
+        for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
+            char p[80];
+            struct stat st;
+            snprintf(p, sizeof(p), "%s/lua_api.md", dirs[i]);
+            if (stat(p, &st) == 0) {
+                printf("  lua_api    %s  (overrides the shipped copy)\n", p);
+                break;
+            }
+        }
+    }
     printf("  heap       free %u, min %u, largest %u\n",
            (unsigned)heap_caps_get_free_size(caps),
            (unsigned)heap_caps_get_minimum_free_size(caps),
