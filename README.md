@@ -20,6 +20,7 @@
 * Bluetooth keyboard support: Bluetooth keyboard scanning, pairing, reconnect, and saved target storage
 * File storage: LittleFS and SD card support
 * Lua: Embedded Lua runtime for scripting and lightweight GUI/TUI apps
+* AI agent: `claw` runs an on-device agent that can read and write files, run shell commands, write Lua, and drive Grove accessories ([see claw.md](docs/claw.md))
 * Built-in apps: `vi`, `plasma`, `termbench`, `wget`, `gzip`, `gunzip`, `ping`
 - Lots of extra shell utilities: [See commands.md](docs/commands.md)
 
@@ -29,6 +30,7 @@ Check out more examples and commands here
 * [Commands](docs/commands.md)
 * [Examples](docs/examples.md)
 * [Lua](docs/lua.md)
+* [claw, the AI agent](docs/claw.md)
 
 ## Filesystems
 
@@ -67,6 +69,21 @@ The resulting `breezybox-firmware/build-cardputer/breezybox-cardputer.bin`
 contains the bootloader, partition table, firmware, and LittleFS image. It is
 the same universal image for both Cardputer and Cardputer ADV, is compatible
 with Launcher, and may also be flashed directly at offset `0x0`.
+
+### Cardputer with the AI agent
+
+`claw` needs the `cardputer-claw` profile. It is the same hardware and the same
+auto-detecting image, trimmed so a TLS handshake has the memory it needs:
+Bluetooth, SSH and the ELF loader are dropped, and there is one virtual terminal
+instead of two.
+
+```sh
+make build BOARD=cardputer-claw
+make flash BOARD=cardputer-claw PORT=/dev/cu.usbmodem1101
+```
+
+`BOARD=` is needed on the flash command too. See [claw.md](docs/claw.md) for
+setup and usage.
 
 ### StickS3
 

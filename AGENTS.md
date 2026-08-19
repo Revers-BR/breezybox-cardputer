@@ -103,10 +103,62 @@ This Cardputer ADV port is different:
 So external ELF apps are currently not a reliable execution model on this Cardputer build. Built-in apps are the supported path unless the loader/memory strategy is redesigned.
 
 
+## claw (AI agent)
+
+`claw` is an on-device AI agent. User documentation is `docs/claw.md`; the
+design record, including the measurements behind it, is
+`docs/claw-architecture.md`.
+
+Where things live:
+
+- `breezybox-cardputer/claw/` agent core, C:
+  - `claw_agent.c` request/response round plus the tool loop
+  - `claw_backend{,_anthropic,_openai,_gemini}.c` one vtable, three providers
+  - `claw_config.c` settings, SD-preferred with flash fallback
+  - `claw_models.c` model catalogue, read from JSON not compiled in
+  - `claw_session.c` JSONL transcripts, replayed under a byte budget
+  - `claw_sse.c` incremental SSE parser, fixed buffers
+  - `claw_tools.c` capability registry, path confinement, destructive-action guard
+- `breezybox-cardputer/cmd/claw.c` the `claw` console command and REPL
+- `breezybox-cardputer/cmd/lua_https.c` `breezy.https` binding (Lua-side TLS)
+- `packages/espclaw/root/apps/espclaw/` data staged into the firmware image:
+  `ca/gts_root_r1.pem`, `models.json`, `lua_api.md`
+- `tools/gen_lua_api.py` regenerates `lua_api.md` from the bindings in
+  `cmd/lua.c`. Run it after changing any Lua binding.
+- `tests/c/` host tests for the C core; `sh tests/c/run.sh`
+
+Things worth knowing before changing it:
+
+- The agent requires the `cardputer-claw` build profile. On the stock
+  `cardputer` build it compiles and runs but TLS handshakes fail for want of
+  contiguous memory.
+- `claw_session_replay()` returns neutral `{role, content}` turns so the
+  transcript stays provider-agnostic. Backends append tool turns in their own
+  native shape into the same array, so **every `build_body` must pass native
+  turns through untouched**. Getting this wrong makes the model repeat a tool
+  call forever; there is a guard for exactly that.
+- Nothing may scale with conversation length in RAM. The request body is staged
+  to disk and streamed; responses are parsed per SSE event and never buffered.
+- `packages/espclaw/` also contains a superseded Lua implementation of the
+  agent, kept as the reference the C was ported from. Only `ca/`, `models.json`
+  and `lua_api.md` are shipped.
+
 ## Repo Layout
 
 - `breezybox-firmware/` active Cardputer ADV firmware
 - `breezybox-cardputer/apps/` built-in app sources and related assets
+- `breezybox-cardputer/claw/` AI agent core (see above)
+- `packages/espclaw/` agent data files, and the superseded Lua prototype
+
+## Build Profiles
+
+- `cardputer` universal image for Cardputer and Cardputer ADV
+- `cardputer-adv` as above; kept for compatibility, the keyboard is detected at runtime
+- `cardputer-claw` the agent profile: Bluetooth, SSH and the ELF loader
+  dropped, no graphics-framebuffer preallocation, 8 KB TLS record buffer, one
+  virtual terminal. Frees roughly 100 KB of internal SRAM, which is what makes
+  a TLS handshake possible.
+- `sticks3` M5StickC S3
 
 
 
@@ -116,6 +168,9 @@ So external ELF apps are currently not a reliable execution model on this Cardpu
 Important current limits:
 
 - terminal geometry is fixed at `40x16`
+- on `cardputer-claw` there is one virtual terminal and no Bluetooth or SSH
+- claw tool support is implemented for all three providers, but only the Gemini
+  path has been exercised on hardware
 - runtime font scaling is not implemented
 - external ELF app execution is not the primary supported path
 - `ln` supports hard links only
