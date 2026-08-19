@@ -179,6 +179,37 @@ claw> read the temperature from it every second for 10 seconds
 I2C, GPIO, ADC and UART accessories all work. Neither keyboard variant touches
 G1 or G2, so accessories behave the same on Cardputer and Cardputer ADV.
 
+### Addressable LED units (NeoPixel / WS2812)
+
+These are **not** I2C devices. They take data on `G2`, and pointing `i2c_scan`
+at one drives 128 addresses of garbage into that line, lighting the LEDs at
+arbitrary values -- which spikes current, browns the board out, and leaves the
+strip lit, because WS2812s latch their last value.
+
+Drive them with `breezy.led` instead:
+
+```lua
+local breezy = require("breezy")
+local led = breezy.led
+
+led.open(2, 3, { brightness = 25 })   -- pin G2, 3 LEDs
+led.fill(0, 40, 0)                    -- dim green
+led.show()                            -- nothing reaches the strip until this
+breezy.sleep(1)
+led.close()                           -- clears before releasing
+```
+
+Timing is handled by the RMT peripheral, so it is not affected by what the CPU
+is doing. Brightness is scaled and defaults to 25%: full white on the Grove rail
+is exactly what causes a brownout.
+
+```
+claw> set the light to dim blue
+[tool: run_lua]
+```
+
+If a strip is stuck on, `led.open(...)` then `led.close()` clears it.
+
 ### Powering accessories
 
 The Grove `5V` pin shares the board's rail. An accessory that draws real

@@ -687,7 +687,7 @@ static const claw_tool_t k_tools[] = {
     { "memory_save", "Remember something for future conversations. Use when you learn a durable fact about the user, their hardware or their project.", memory_save_schema, memory_save_run },
     { "memory_read", "Read the full text of something in your memory index.", memory_read_schema, memory_read_run },
     { "memory_forget", "Delete something from memory. Asks the user first.", memory_forget_schema, memory_forget_run },
-    { "i2c_scan",    "Scan the Grove port for connected I2C devices and report their addresses.", i2c_scan_schema, i2c_scan_run },
+    { "i2c_scan",    "Scan the Grove port for I2C devices. Only use this for I2C accessories (sensors). Do NOT use it on an addressable LED/NeoPixel unit: it is not an I2C device, and scanning drives garbage into its data line, which can brown out the board. Use run_lua with breezy.led for those.", i2c_scan_schema, i2c_scan_run },
     { "lua_api",     "Get the exact breezy Lua API reference for this device. Call this before writing a Lua script if unsure of a function name.", lua_api_schema, lua_api_run },
     { "run_lua",     "Run a Lua script on the device, optionally saving it as a reusable skill. Use this to control hardware or compute something the other tools cannot.", run_lua_schema, run_lua_run },
     { "device_info", "Report board, memory and storage information.",  device_info_schema, device_info_run },

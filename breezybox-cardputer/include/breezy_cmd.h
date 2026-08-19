@@ -55,6 +55,9 @@ int cmd_ccleste(int argc, char **argv);
 struct luaL_Reg;
 const struct luaL_Reg *breezy_lua_https_lib(void);
 
+/* breezy.led sub-table (cmd/lua_led.c): addressable LED strips over RMT. */
+const struct luaL_Reg *breezy_lua_led_lib(void);
+
 #if !defined(BREEZY_SLIM)
 int cmd_ssh(int argc, char **argv);
 int cmd_sshcfg(int argc, char **argv);

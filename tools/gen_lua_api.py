@@ -13,7 +13,8 @@ import re
 import sys
 from pathlib import Path
 
-SRC = Path("breezybox-cardputer/cmd/lua.c")
+SRCS = [Path("breezybox-cardputer/cmd/lua.c"),
+        Path("breezybox-cardputer/cmd/lua_led.c")]
 OUT = Path("packages/espclaw/root/apps/espclaw/lua_api.md")
 
 # Registered outside the s_breezy_* tables.
@@ -43,15 +44,22 @@ HINTS = {
     "sound.tone":         "(hz, ms)",
     "i2c.scan":           "() -> table of addresses",
     "pin.mode":           '(gpio, "in"|"out")',
+    "led.open":           "(pin, count[, {brightness=0..100}])  -- WS2812/NeoPixel",
+    "led.set":            "(index, r, g, b)  -- index is 1-based",
+    "led.fill":           "(r, g, b)",
+    "led.show":           "()  -- nothing reaches the strip until this is called",
+    "led.brightness":     "([pct]) -> pct",
+    "led.close":          "()  -- clears the strip first; it latches otherwise",
 }
 
 
 def main() -> int:
-    if not SRC.exists():
-        print(f"error: {SRC} not found (run from the repo root)", file=sys.stderr)
+    missing = [p for p in SRCS if not p.exists()]
+    if missing:
+        print(f"error: {missing[0]} not found (run from the repo root)", file=sys.stderr)
         return 1
 
-    src = SRC.read_text()
+    src = "\n".join(p.read_text() for p in SRCS)
     mods: dict[str, list[str]] = {}
     for m in re.finditer(r"static const luaL_Reg (s_breezy_\w+)\[\] = \{(.*?)\n\};", src, re.S):
         name = m.group(1).replace("s_breezy_", "").replace("_lib", "")
@@ -122,6 +130,16 @@ def main() -> int:
         "",
         "-- Analog in on G1 (ADC1 channel 0)",
         "print(breezy.adc.read(0))",
+        "",
+        "-- Addressable LED / NeoPixel unit, data on G2",
+        "-- These are NOT I2C. Scanning them feeds garbage into the data line,",
+        "-- lights the LEDs at random values and can brown out the board.",
+        "local led = breezy.led",
+        "led.open(2, 3, { brightness = 25 })   -- pin, number of LEDs",
+        "led.fill(0, 40, 0)                    -- dim green",
+        "led.show()",
+        "breezy.sleep(1)",
+        "led.close()                           -- clears before releasing",
         "",
         "-- Serial accessory: TX=G1, RX=G2",
         "local h = breezy.uart.open(1, 115200, 1, 2)",

@@ -105,6 +105,16 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.keyboard.is_down()`
 - `breezy.keyboard.mods()`
 
+## breezy.led
+
+- `breezy.led.open(pin, count[, {brightness=0..100}])  -- WS2812/NeoPixel`
+- `breezy.led.set(index, r, g, b)  -- index is 1-based`
+- `breezy.led.fill(r, g, b)`
+- `breezy.led.clear()`
+- `breezy.led.show()  -- nothing reaches the strip until this is called`
+- `breezy.led.brightness([pct]) -> pct`
+- `breezy.led.close()  -- clears the strip first; it latches otherwise`
+
 ## breezy.network
 
 - `breezy.network.is_connected() -> boolean`
@@ -200,6 +210,16 @@ print(breezy.pin.read(1))
 
 -- Analog in on G1 (ADC1 channel 0)
 print(breezy.adc.read(0))
+
+-- Addressable LED / NeoPixel unit, data on G2
+-- These are NOT I2C. Scanning them feeds garbage into the data line,
+-- lights the LEDs at random values and can brown out the board.
+local led = breezy.led
+led.open(2, 3, { brightness = 25 })   -- pin, number of LEDs
+led.fill(0, 40, 0)                    -- dim green
+led.show()
+breezy.sleep(1)
+led.close()                           -- clears before releasing
 
 -- Serial accessory: TX=G1, RX=G2
 local h = breezy.uart.open(1, 115200, 1, 2)

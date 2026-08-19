@@ -2,7 +2,7 @@ set(BREEZYBOX_CARDPUTER_REQUIRES
     console littlefs spiffs fatfs nvs_flash esp_wifi esp_netif esp_http_server
     esp_http_client esp-tls json vfs mbedtls zlib breezy_term
     valdanylchuk__breezy_rgb_lcd driver esp_driver_sdspi esp_driver_spi
-    esp_driver_uart esp_driver_i2s esp_driver_ledc esp_adc sdmmc lwip
+    esp_driver_uart esp_driver_i2s esp_driver_ledc esp_driver_rmt esp_adc sdmmc lwip
     libssh_esp32 app_update esp_timer
 )
 
@@ -60,6 +60,7 @@ idf_component_register(
         "claw/claw_sse.c"
         "claw/claw_tools.c"
         "cmd/lua_https.c"
+        "cmd/lua_led.c"
         "third_party/lua/onelua.c"
         ${BREEZYBOX_SSH_SRCS}
     INCLUDE_DIRS "include" "third_party/lua" "claw"

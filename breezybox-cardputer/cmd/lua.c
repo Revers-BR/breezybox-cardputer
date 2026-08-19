@@ -4178,6 +4178,9 @@ static int lua_push_breezy_named_module(lua_State *L, const char *name)
         luaL_newlib(L, s_breezy_network_lib);
     } else if (strcmp(name, "json") == 0) {
         luaL_newlib(L, s_breezy_json_lib);
+    } else if (strcmp(name, "led") == 0) {
+        lua_newtable(L);
+        luaL_setfuncs(L, breezy_lua_led_lib(), 0);
     } else if (strcmp(name, "https") == 0) {
         /* The https table lives in another translation unit, so we only have a
          * pointer here; luaL_newlib's sizeof() trick needs a real array. */
