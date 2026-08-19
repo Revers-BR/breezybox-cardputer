@@ -183,9 +183,9 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.uart.readline()`
 - `breezy.uart.flush()`
 
-## Hardware
+## Grove port
 
-### Grove port (HY2.0-4P): GND, 5V, G2, G1
+The Grove connector is HY2.0-4P: GND, 5V, G2, G1.
 
 `G1` and `G2` are the only user-free GPIOs, and every other pin below is
 already committed to something. Accessories connect here.
@@ -228,7 +228,7 @@ print(breezy.uart.read(h, 64, 100))
 breezy.uart.close(h)
 ```
 
-### Power
+## Power
 
 The Grove `5V` pin shares the board rail. A relay, bright LED or motor
 can pull it down enough to trip the brownout detector and reset the
@@ -245,7 +245,7 @@ should have its own supply.
 Release pins when finished (`breezy.pin.mode(n, "in")`, `breezy.i2c.close()`)
 so nothing is left sinking current.
 
-### Pins already in use -- do not drive these
+## Pins in use
 
 | Function | Pins |
 |---|---|

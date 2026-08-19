@@ -570,44 +570,146 @@ static const char *const k_api_paths[] = {
 
 static cJSON *lua_api_schema(void)
 {
-    return schema_of(NULL, 0, cJSON_CreateObject());
+    cJSON *props = cJSON_CreateObject();
+    add_prop(props, "module", "string",
+             "Which part of the API to return, e.g. 'led', 'i2c', 'gfx', "
+             "'hardware' (Grove port and pin map), or 'core'. Omit to list the "
+             "available modules. The full reference is far too large to return "
+             "at once, so ask for the part you need.");
+    return schema_of(NULL, 0, props);
 }
 
-static bool lua_api_run(const cJSON *args, char *out, size_t out_len)
+/* Read the reference file. Caller frees. */
+static char *lua_api_slurp(const char **path_out)
 {
-    (void)args;
     for (size_t i = 0; i < sizeof(k_api_paths) / sizeof(k_api_paths[0]); i++) {
         FILE *f = fopen(k_api_paths[i], "rb");
         if (!f) {
             continue;
         }
-        /* Name the file. A stale working copy on the card shadows the shipped
-         * reference, and a model reading an old API list concludes a module
-         * does not exist rather than that its copy is out of date. */
-        int hdr = snprintf(out, out_len, "(source: %s)\n", k_api_paths[i]);
-        size_t used = (hdr > 0) ? (size_t)hdr : 0;
-
-        size_t got = fread(out + used, 1, out_len - used - 48, f);
-        long more = 0;
-        if (got == out_len - used - 48) {
-            fseek(f, 0, SEEK_END);
-            more = ftell(f) - (long)got;
+        fseek(f, 0, SEEK_END);
+        long len = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (len <= 0 || len > 32768) {
+            fclose(f);
+            continue;
         }
+        char *buf = malloc((size_t)len + 1);
+        if (!buf) {
+            fclose(f);
+            return NULL;
+        }
+        size_t got = fread(buf, 1, (size_t)len, f);
         fclose(f);
-        used += got;
-        out[used] = '\0';
-        if (more > 0) {
-            snprintf(out + used, 48, "\n[truncated, %ld more bytes]", more);
+        buf[got] = '\0';
+        if (path_out) {
+            *path_out = k_api_paths[i];
         }
+        return buf;
+    }
+    return NULL;
+}
+
+/* Case-insensitive match of a "## " heading against `want`, allowing either
+ * "led" or "breezy.led". */
+static bool heading_matches(const char *line, const char *want)
+{
+    if (strncmp(line, "## ", 3) != 0) {
+        return false;
+    }
+    const char *h = line + 3;
+    if (strncmp(h, "breezy.", 7) == 0) {
+        h += 7;
+    }
+    size_t n = strlen(want);
+    if (strncasecmp(h, want, n) != 0) {
+        return false;
+    }
+    char after = h[n];
+    return after == '\0' || after == '\n' || after == '\r' || after == ' ';
+}
+
+static bool lua_api_run(const cJSON *args, char *out, size_t out_len)
+{
+    const char *path = NULL;
+    char *doc = lua_api_slurp(&path);
+    if (!doc) {
+        snprintf(out, out_len,
+                 "The API reference is not installed. The module is `breezy`, "
+                 "loaded with require(\"breezy\"); useful calls include "
+                 "breezy.battery.read_pct(), breezy.read_file(path), "
+                 "breezy.led.open(pin, count) and breezy.gfx.*. "
+                 "There is no io or os library.");
         return true;
     }
-    snprintf(out, out_len,
-             "The API reference is not installed. The module is `breezy`, "
-             "loaded with require(\"breezy\"); useful calls include "
-             "breezy.battery.read_pct(), breezy.read_file(path), "
-             "breezy.write_file(path, text), breezy.listdir(path), "
-             "breezy.exec(cmd), breezy.heap() and breezy.gfx.*. "
-             "There is no io or os library.");
+
+    const char *want = arg_str(args, "module");
+    size_t used = 0;
+
+    if (!want || !want[0]) {
+        /* Index only: the whole reference does not fit in a tool result, and
+         * sending a truncated one is worse than sending a map -- the model
+         * concludes the missing modules do not exist. */
+        used = (size_t)snprintf(out, out_len,
+                                "(source: %s)\n"
+                                "Ask for one section at a time with the "
+                                "'module' argument.\n\nAvailable:\n", path);
+        for (char *line = doc; line && *line; ) {
+            char *nl = strchr(line, '\n');
+            if (strncmp(line, "## ", 3) == 0) {
+                size_t n = nl ? (size_t)(nl - line - 3) : strlen(line + 3);
+                int w = snprintf(out + used, out_len - used, "  %.*s\n", (int)n, line + 3);
+                if (w > 0 && (size_t)w < out_len - used) {
+                    used += (size_t)w;
+                }
+            }
+            line = nl ? nl + 1 : NULL;
+        }
+        snprintf(out + used, out_len - used,
+                 "\nStart every script with: local breezy = require(\"breezy\")\n"
+                 "There is no io or os library; use print().\n");
+        free(doc);
+        return true;
+    }
+
+    /* One section, heading to the next heading. */
+    char *start = NULL;
+    char *stop = NULL;
+    for (char *line = doc; line && *line; ) {
+        char *nl = strchr(line, '\n');
+        if (!start) {
+            if (heading_matches(line, want)) {
+                start = line;
+            }
+        } else if (strncmp(line, "## ", 3) == 0) {
+            stop = line;
+            break;
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+
+    if (!start) {
+        snprintf(out, out_len,
+                 "No section '%s'. Call lua_api with no arguments to list what "
+                 "is available.", want);
+        free(doc);
+        return true;
+    }
+
+    size_t len = stop ? (size_t)(stop - start) : strlen(start);
+    used = (size_t)snprintf(out, out_len, "(source: %s)\n", path);
+    size_t space = out_len - used - 48;
+    bool cut = len > space;
+    if (cut) {
+        len = space;
+    }
+    memcpy(out + used, start, len);
+    used += len;
+    out[used] = '\0';
+    if (cut) {
+        snprintf(out + used, 48, "\n[section truncated]");
+    }
+    free(doc);
     return true;
 }
 
@@ -730,7 +832,7 @@ static const claw_tool_t k_tools[] = {
     { "memory_read", "Read the full text of something in your memory index.", memory_read_schema, memory_read_run },
     { "memory_forget", "Delete something from memory. Asks the user first.", memory_forget_schema, memory_forget_run },
     { "i2c_scan",    "Scan the Grove port for I2C devices. Only use this for I2C accessories (sensors). Do NOT use it on an addressable LED/NeoPixel unit: it is not an I2C device, and scanning drives garbage into its data line, which can brown out the board. Use run_lua with breezy.led for those.", i2c_scan_schema, i2c_scan_run },
-    { "lua_api",     "Get the exact breezy Lua API reference for this device. Call this before writing a Lua script if unsure of a function name.", lua_api_schema, lua_api_run },
+    { "lua_api",     "Get the breezy Lua API reference for this device. Call with no arguments to list the available sections, then again with module= for the one you need (e.g. 'led' for addressable LEDs, 'hardware' for the Grove pinout). Always check here before writing a Lua script.", lua_api_schema, lua_api_run },
     { "run_lua",     "Run a Lua script on the device, optionally saving it as a reusable skill. Use this to control hardware or compute something the other tools cannot.", run_lua_schema, run_lua_run },
     { "device_info", "Report board, memory and storage information.",  device_info_schema, device_info_run },
 };
