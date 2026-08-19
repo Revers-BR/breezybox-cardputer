@@ -2,6 +2,7 @@
  * llama.cpp via base_url. Unnamed SSE events terminated by `data: [DONE]`. */
 #include "claw_backend.h"
 #include "claw_config.h"
+#include "claw_tools.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -74,6 +75,128 @@ static const char *text(const char *event, cJSON *obj)
     return cJSON_IsString(c) ? c->valuestring : NULL;
 }
 
+/* OpenAI wraps each tool in a function object. */
+static void add_tools(cJSON *body)
+{
+    cJSON *tools = cJSON_CreateArray();
+    if (!tools) {
+        return;
+    }
+    for (size_t i = 0; i < claw_tools_count(); i++) {
+        const claw_tool_t *t = claw_tools_at(i);
+        cJSON *entry = cJSON_CreateObject();
+        cJSON *fn = cJSON_CreateObject();
+        if (!entry || !fn) {
+            cJSON_Delete(entry);
+            cJSON_Delete(fn);
+            continue;
+        }
+        cJSON_AddStringToObject(fn, "name", t->name);
+        cJSON_AddStringToObject(fn, "description", t->description);
+        cJSON *schema = t->schema();
+        if (schema) {
+            cJSON_AddItemToObject(fn, "parameters", schema);
+        }
+        cJSON_AddStringToObject(entry, "type", "function");
+        cJSON_AddItemToObject(entry, "function", fn);
+        cJSON_AddItemToArray(tools, entry);
+    }
+    cJSON_AddItemToObject(body, "tools", tools);
+}
+
+/*
+ * Arguments stream as fragments on tool_calls[].function.arguments. The name
+ * and id arrive on the first delta only, and completion is signalled by
+ * finish_reason == "tool_calls" rather than by a closing event.
+ */
+static bool extract_tool_call(const char *event, cJSON *obj, claw_tool_accum_t *acc)
+{
+    (void)event;
+
+    cJSON *choices = cJSON_GetObjectItemCaseSensitive(obj, "choices");
+    cJSON *first = cJSON_IsArray(choices) ? cJSON_GetArrayItem(choices, 0) : NULL;
+    if (!first) {
+        return false;
+    }
+
+    cJSON *delta = cJSON_GetObjectItemCaseSensitive(first, "delta");
+    cJSON *calls = delta ? cJSON_GetObjectItemCaseSensitive(delta, "tool_calls") : NULL;
+    cJSON *call = cJSON_IsArray(calls) ? cJSON_GetArrayItem(calls, 0) : NULL;
+    if (call) {
+        cJSON *id = cJSON_GetObjectItemCaseSensitive(call, "id");
+        if (cJSON_IsString(id) && id->valuestring[0]) {
+            snprintf(acc->id, sizeof(acc->id), "%s", id->valuestring);
+            acc->active = true;
+            acc->json_len = 0;
+            acc->json[0] = '\0';
+        }
+        cJSON *fn = cJSON_GetObjectItemCaseSensitive(call, "function");
+        if (fn) {
+            cJSON *nm = cJSON_GetObjectItemCaseSensitive(fn, "name");
+            if (cJSON_IsString(nm) && nm->valuestring[0]) {
+                snprintf(acc->name, sizeof(acc->name), "%s", nm->valuestring);
+                acc->active = true;
+            }
+            cJSON *a = cJSON_GetObjectItemCaseSensitive(fn, "arguments");
+            if (cJSON_IsString(a)) {
+                claw_tool_accum_add(acc, a->valuestring);
+            }
+        }
+    }
+
+    cJSON *fr = cJSON_GetObjectItemCaseSensitive(first, "finish_reason");
+    if (cJSON_IsString(fr) && strcmp(fr->valuestring, "tool_calls") == 0 && acc->active) {
+        acc->active = false;
+        if (acc->json_len == 0) {
+            claw_tool_accum_add(acc, "{}");
+        }
+        return acc->name[0] != '\0';
+    }
+    return false;
+}
+
+/* The call goes back on an assistant message, the result as a separate message
+ * with role "tool" referencing the call id. */
+static void append_tool_result(cJSON *messages, const char *name, const char *id,
+                               const cJSON *args, const char *result)
+{
+    cJSON *assistant = cJSON_CreateObject();
+    cJSON *calls = cJSON_CreateArray();
+    cJSON *call = cJSON_CreateObject();
+    cJSON *fn = cJSON_CreateObject();
+    if (assistant && calls && call && fn) {
+        char *argstr = args ? cJSON_PrintUnformatted(args) : NULL;
+        cJSON_AddStringToObject(fn, "name", name);
+        /* OpenAI wants the arguments as a JSON *string*, not an object. */
+        cJSON_AddStringToObject(fn, "arguments", argstr ? argstr : "{}");
+        if (argstr) {
+            cJSON_free(argstr);
+        }
+        cJSON_AddStringToObject(call, "id", id ? id : "");
+        cJSON_AddStringToObject(call, "type", "function");
+        cJSON_AddItemToObject(call, "function", fn);
+        cJSON_AddItemToArray(calls, call);
+
+        cJSON_AddStringToObject(assistant, "role", "assistant");
+        cJSON_AddNullToObject(assistant, "content");
+        cJSON_AddItemToObject(assistant, "tool_calls", calls);
+        cJSON_AddItemToArray(messages, assistant);
+    } else {
+        cJSON_Delete(assistant);
+        cJSON_Delete(calls);
+        cJSON_Delete(call);
+        cJSON_Delete(fn);
+    }
+
+    cJSON *tool = cJSON_CreateObject();
+    if (tool) {
+        cJSON_AddStringToObject(tool, "role", "tool");
+        cJSON_AddStringToObject(tool, "tool_call_id", id ? id : "");
+        cJSON_AddStringToObject(tool, "content", result ? result : "");
+        cJSON_AddItemToArray(messages, tool);
+    }
+}
+
 static const char *err(cJSON *obj, char *buf, size_t n)
 {
     cJSON *e = cJSON_GetObjectItemCaseSensitive(obj, "error");
@@ -97,4 +220,7 @@ const claw_backend_t claw_backend_openai = {
     .build_body    = body,
     .extract_text  = text,
     .extract_error = err,
+    .add_tools     = add_tools,
+    .extract_tool_call  = extract_tool_call,
+    .append_tool_result = append_tool_result,
 };

@@ -21,7 +21,9 @@
 #include "esp_netif.h"
 #include "linenoise/linenoise.h"
 
+#include <dirent.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include <string.h>
 
 #define CLAW_VERSION "0.3.0"
@@ -34,6 +36,7 @@ static const char *k_shown_keys[] = {
 };
 
 static int cmd_stats(void);
+static int cmd_skills(int argc, char **argv);
 
 static void print_usage(void)
 {
@@ -43,6 +46,7 @@ static void print_usage(void)
     printf("  claw model [<name>]          show or set the model\n");
     printf("  claw models                  list suggested models\n");
     printf("  claw backend [<name>]        show or switch provider\n");
+    printf("  claw skills [rm <name>]      scripts the model has saved\n");
     printf("  claw session <new|list|show|rm>\n");
     printf("  claw config show             list settings\n");
     printf("  claw config get <key>\n");
@@ -193,8 +197,12 @@ static int cmd_repl(void)
     claw_backend_model(b, model, sizeof(model));
 
     printf("claw " CLAW_VERSION " - %s / %s\n", b->name, model);
-    printf("session %s (%d turns). Ctrl-D or 'exit' to leave, /help for commands.\n\n",
+    printf("session %s (%d turns). Ctrl-D or 'exit' to leave, /help for commands.\n",
            sid, claw_session_count());
+    if (!b->add_tools) {
+        printf("note: %s has no tool support here, so this is chat only.\n", b->name);
+    }
+    printf("\n");
 
     bool verbose = false;
 
@@ -271,6 +279,9 @@ static int cmd_repl(void)
             } else if (strcmp(line, "/stats") == 0) {
                 cmd_stats();
                 printf("\n");
+            } else if (strcmp(line, "/skills") == 0) {
+                cmd_skills(0, NULL);
+                printf("\n");
             } else if (strcmp(line, "/show") == 0) {
                 claw_session_show(NULL);
                 printf("\n");
@@ -281,6 +292,7 @@ static int cmd_repl(void)
                 printf("  /backend <name>   switch provider\n");
                 printf("  /new      start a new session\n");
                 printf("  /show     print this session\n");
+                printf("  /skills   list saved skills\n");
                 printf("  /stats    status and memory\n");
                 printf("  /verbose  toggle transport statistics\n");
                 printf("  exit      leave\n\n");
@@ -324,6 +336,57 @@ static int cmd_ask(int argc, char **argv)
         return 1;
     }
     return run_turn(prompt, verbose);
+}
+
+/* Scripts the model has written and kept. They are ordinary Lua files: a skill
+ * can be run directly with `lua /sd/claw/skills/<name>.lua`, no agent needed. */
+static int cmd_skills(int argc, char **argv)
+{
+    const char *dir = "/sd/claw/skills";
+
+    if (argc > 0 && strcmp(argv[0], "rm") == 0) {
+        if (argc < 2) {
+            printf("usage: claw skills rm <name>\n");
+            return 1;
+        }
+        char p[160];
+        snprintf(p, sizeof(p), "%s/%s.lua", dir, argv[1]);
+        if (remove(p) != 0) {
+            printf("claw: no such skill: %s\n", argv[1]);
+            return 1;
+        }
+        printf("deleted %s\n", argv[1]);
+        return 0;
+    }
+
+    DIR *d = opendir(dir);
+    if (!d) {
+        printf("no skills yet.\n");
+        printf("Ask claw to write one, e.g. \"write a lua script that shows the "
+               "battery level and save it as battery\"\n");
+        return 0;
+    }
+    int n = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        const char *dot = strstr(e->d_name, ".lua");
+        if (!dot || dot[4] != '\0') {
+            continue;
+        }
+        char p[320];   /* dir + NAME_MAX, so a long filename cannot truncate */
+        if (snprintf(p, sizeof(p), "%s/%s", dir, e->d_name) >= (int)sizeof(p)) {
+            continue;
+        }
+        struct stat st;
+        long size = (stat(p, &st) == 0) ? (long)st.st_size : 0;
+        printf("  %-24s %ld bytes   lua %s\n", e->d_name, size, p);
+        n++;
+    }
+    closedir(d);
+    if (n == 0) {
+        printf("no skills yet\n");
+    }
+    return 0;
 }
 
 static int cmd_session(int argc, char **argv)
@@ -449,6 +512,8 @@ static int cmd_stats(void)
     printf("  model      %s\n", model);
     printf("  endpoint   %s\n", url);
     printf("  network    %s\n", online ? "connected" : "offline");
+    printf("  tools      %s\n",
+           b->add_tools ? "yes" : "no (this backend has no tool support yet)");
     printf("  config     %s\n", claw_config_path());
     {
         char sid[CLAW_SESSION_ID_MAX];
@@ -501,6 +566,9 @@ int cmd_claw(int argc, char **argv)
             return 0;
         }
         return set_backend(rest_argv[0]);
+    }
+    if (strcmp(sub, "skills") == 0) {
+        return cmd_skills(rest_argc, rest_argv);
     }
     if (strcmp(sub, "session") == 0) {
         return cmd_session(rest_argc, rest_argv);

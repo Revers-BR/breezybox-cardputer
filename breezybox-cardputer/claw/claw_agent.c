@@ -55,9 +55,7 @@ typedef struct {
     /* One tool call per round. The loop runs again afterwards, which bounds
      * memory and keeps the ordering obvious. */
     bool   has_call;
-    char   call_name[64];
-    char   call_id[64];
-    cJSON *call_args;
+    claw_tool_accum_t acc;
 } stream_ctx_t;
 
 static void heap_line(const char *label)
@@ -128,13 +126,8 @@ static void on_sse_event(const char *event, const char *data, void *vctx)
     }
 
     if (!ctx->has_call && ctx->backend->extract_tool_call) {
-        cJSON *args = NULL;
-        if (ctx->backend->extract_tool_call(event, obj,
-                                            ctx->call_name, sizeof(ctx->call_name),
-                                            ctx->call_id, sizeof(ctx->call_id),
-                                            &args)) {
+        if (ctx->backend->extract_tool_call(event, obj, &ctx->acc)) {
             ctx->has_call = true;
-            ctx->call_args = args;
         }
     }
 
@@ -426,18 +419,32 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         rc = claw_round(backend, messages, api_key, verbose, res, &sctx);
 
         if (rc != 0 || !sctx.has_call) {
-            cJSON_Delete(sctx.call_args);
             break;
         }
 
         /* --- run the tool ------------------------------------------------- */
         res->tool_calls++;
 
+        if (sctx.acc.overflow) {
+            printf("\n[tool arguments too large for %s]\n", sctx.acc.name);
+            snprintf(res->error, sizeof(res->error),
+                     "%s was called with arguments larger than %d bytes",
+                     sctx.acc.name, CLAW_TOOL_ARGS_MAX);
+            rc = 1;
+            break;
+        }
+
+        /* Fragments are only valid JSON once the call is complete. */
+        cJSON *call_args = cJSON_Parse(sctx.acc.json_len ? sctx.acc.json : "{}");
+        if (!call_args) {
+            call_args = cJSON_CreateObject();
+        }
+
         if (!tool_out) {
             tool_out = malloc(CLAW_TOOL_RESULT_MAX);
             if (!tool_out) {
                 snprintf(res->error, sizeof(res->error), "out of memory for tool output");
-                cJSON_Delete(sctx.call_args);
+                cJSON_Delete(call_args);
                 rc = 1;
                 break;
             }
@@ -445,37 +452,31 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
 
         /* name + arguments identify a call well enough to spot a repeat. */
         char sig[256];
-        {
-            char *argstr = sctx.call_args ? cJSON_PrintUnformatted(sctx.call_args) : NULL;
-            snprintf(sig, sizeof(sig), "%s(%s)", sctx.call_name, argstr ? argstr : "");
-            if (argstr) {
-                cJSON_free(argstr);
-            }
-        }
+        snprintf(sig, sizeof(sig), "%s(%.180s)", sctx.acc.name, sctx.acc.json);
         if (last_sig[0] && strcmp(sig, last_sig) == 0) {
             printf("\n[stopped: %s called twice with the same arguments]\n",
-                   sctx.call_name);
+                   sctx.acc.name);
             snprintf(res->error, sizeof(res->error),
                      "the model repeated the same %s call; its result was probably "
-                     "not reaching it", sctx.call_name);
-            cJSON_Delete(sctx.call_args);
+                     "not reaching it", sctx.acc.name);
+            cJSON_Delete(call_args);
             rc = 1;
             break;
         }
         snprintf(last_sig, sizeof(last_sig), "%s", sig);
 
-        printf("\n[tool: %s]\n", sctx.call_name);
-        claw_tools_run(sctx.call_name, sctx.call_args, tool_out, CLAW_TOOL_RESULT_MAX);
+        printf("\n[tool: %s]\n", sctx.acc.name);
+        claw_tools_run(sctx.acc.name, call_args, tool_out, CLAW_TOOL_RESULT_MAX);
         if (verbose) {
             printf("[result: %.120s%s]\n", tool_out,
                    strlen(tool_out) > 120 ? "..." : "");
         }
 
         if (backend->append_tool_result) {
-            backend->append_tool_result(messages, sctx.call_name, sctx.call_id,
-                                        sctx.call_args, tool_out);
+            backend->append_tool_result(messages, sctx.acc.name, sctx.acc.id,
+                                        call_args, tool_out);
         }
-        cJSON_Delete(sctx.call_args);
+        cJSON_Delete(call_args);
 
         if (round == CLAW_MAX_TOOL_ROUNDS - 1) {
             printf("\n[stopped: reached the %d tool-call limit]\n", CLAW_MAX_TOOL_ROUNDS);

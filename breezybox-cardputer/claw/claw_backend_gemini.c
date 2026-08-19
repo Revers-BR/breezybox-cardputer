@@ -186,16 +186,9 @@ static void add_tools(cJSON *body)
 
 /* A call arrives whole inside a part, so there is no fragment reassembly here
  * (unlike Anthropic and OpenAI, which stream the arguments). */
-static bool extract_tool_call(const char *event, cJSON *obj,
-                              char *name_out, size_t name_len,
-                              char *id_out, size_t id_len,
-                              cJSON **args_out)
+static bool extract_tool_call(const char *event, cJSON *obj, claw_tool_accum_t *acc)
 {
     (void)event;
-    if (id_len) {
-        id_out[0] = '\0';         /* Gemini does not supply call ids */
-    }
-    *args_out = NULL;
 
     cJSON *cands = cJSON_GetObjectItemCaseSensitive(obj, "candidates");
     cJSON *first = cJSON_IsArray(cands) ? cJSON_GetArrayItem(cands, 0) : NULL;
@@ -215,10 +208,17 @@ static bool extract_tool_call(const char *event, cJSON *obj,
         if (!cJSON_IsString(nm)) {
             continue;
         }
-        snprintf(name_out, name_len, "%s", nm->valuestring);
+        snprintf(acc->name, sizeof(acc->name), "%s", nm->valuestring);
+        acc->id[0] = '\0';          /* Gemini supplies no call id */
 
         cJSON *a = cJSON_GetObjectItemCaseSensitive(fc, "args");
-        *args_out = a ? cJSON_Duplicate(a, true) : cJSON_CreateObject();
+        char *txt = a ? cJSON_PrintUnformatted(a) : NULL;
+        acc->json_len = 0;
+        acc->json[0] = '\0';
+        claw_tool_accum_add(acc, txt ? txt : "{}");
+        if (txt) {
+            cJSON_free(txt);
+        }
         return true;
     }
     return false;

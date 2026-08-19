@@ -142,6 +142,7 @@ claw> read /sd/claw/config.json and tell me which backend I'm using
 claw> write a haiku about pocket computers to /sd/haiku.txt
 claw> how much free memory does this device have?
 claw> run df and summarise it
+write a lua script that shows the battery percentage, save it as battery
 ```
 
 ## StickS3 Input

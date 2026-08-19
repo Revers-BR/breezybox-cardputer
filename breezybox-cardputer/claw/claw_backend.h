@@ -17,8 +17,46 @@
 #include "cJSON.h"
 #include "esp_http_client.h"
 
+#include <string.h>
+
 #include <stdbool.h>
 #include <stddef.h>
+
+/*
+ * Partial tool call, accumulated across streamed events.
+ *
+ * `json` collects argument fragments verbatim; it is parsed once the provider
+ * signals the call is complete. Fixed size: a model that emits arguments larger
+ * than this is malfunctioning, and growing a buffer mid-stream is exactly what
+ * this design avoids.
+ */
+#define CLAW_TOOL_ARGS_MAX 1024
+
+typedef struct {
+    char   name[64];
+    char   id[64];
+    char   json[CLAW_TOOL_ARGS_MAX];
+    size_t json_len;
+    bool   active;      /* a tool call is open and collecting fragments */
+    bool   overflow;    /* arguments exceeded the buffer */
+} claw_tool_accum_t;
+
+/* Append a fragment, flagging overflow rather than truncating silently. */
+static inline void claw_tool_accum_add(claw_tool_accum_t *acc, const char *frag)
+{
+    if (!frag) {
+        return;
+    }
+    size_t n = strlen(frag);
+    size_t space = sizeof(acc->json) - 1 - acc->json_len;
+    if (n > space) {
+        n = space;
+        acc->overflow = true;
+    }
+    memcpy(acc->json + acc->json_len, frag, n);
+    acc->json_len += n;
+    acc->json[acc->json_len] = '\0';
+}
 
 typedef struct {
     const char *name;
@@ -52,14 +90,13 @@ typedef struct {
     /* Declare the registered tools on an outgoing request body. */
     void (*add_tools)(cJSON *body);
 
-    /* Pull a tool call out of one decoded event. Returns true when this event
-     * carried a complete call. `id` distinguishes concurrent calls where the
-     * provider supplies one; it may be left empty.
-     * `args_out` receives an object the caller owns. */
-    bool (*extract_tool_call)(const char *event, cJSON *obj,
-                              char *name_out, size_t name_len,
-                              char *id_out, size_t id_len,
-                              cJSON **args_out);
+    /* Feed one decoded event to the tool-call accumulator. Returns true when a
+     * complete call is ready in `acc`.
+     *
+     * Anthropic and OpenAI stream the arguments as JSON fragments across many
+     * events, so state has to persist between calls; Gemini delivers a whole
+     * call in one part and simply fills `acc` and returns true. */
+    bool (*extract_tool_call)(const char *event, cJSON *obj, claw_tool_accum_t *acc);
 
     /* Append the assistant's tool call and its result to a messages array, in
      * whatever shape this provider expects to receive them back. */

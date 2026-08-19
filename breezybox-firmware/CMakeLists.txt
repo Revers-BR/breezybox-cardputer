@@ -79,12 +79,15 @@ set(ESPCLAW_PKG ${CMAKE_CURRENT_LIST_DIR}/../packages/espclaw/root/apps/espclaw)
 if(EXISTS ${ESPCLAW_PKG}/ca)
     file(COPY ${ESPCLAW_PKG}/ca DESTINATION ${BREEZY_FS_IMAGE_DIR}/apps/espclaw)
 endif()
+if(EXISTS ${ESPCLAW_PKG}/lua_api.md)
+    file(COPY ${ESPCLAW_PKG}/lua_api.md DESTINATION ${BREEZY_FS_IMAGE_DIR}/apps/espclaw)
+endif()
 if(EXISTS ${ESPCLAW_PKG}/models.json)
     # Shipped default only: it is copied to /sd/claw/models.json on first run,
     # and that copy is what users edit.
     file(COPY ${ESPCLAW_PKG}/models.json DESTINATION ${BREEZY_FS_IMAGE_DIR}/apps/espclaw)
 endif()
-message(STATUS "espclaw: staged CA and model catalogue into fs_image")
+message(STATUS "espclaw: staged CA, model catalogue and Lua API into fs_image")
 
 littlefs_create_partition_image(spiffs ${BREEZY_FS_IMAGE_DIR} FLASH_IN_PROJECT)
 
