@@ -3,6 +3,7 @@ set(BOARD_SRCS
     "my_console_io.c"
     "cmd_app_compat.c"
     "cmd_testgfx.c"
+    "cmd_clawprobe.c"
     "cmd_plasma_builtin.c"
     "cmd_termbench_builtin.c"
     "cmd_vi_builtin.c"
@@ -19,7 +20,6 @@ else()
     list(APPEND BOARD_SRCS
         "board_cardputer.c"
         "cardputer_keyboard.c"
-        "ssh_app_mode.c"
         "cmd_ccleste_builtin.c"
         "../../breezybox-cardputer/apps/ccleste/player.c"
         "../../breezybox-cardputer/apps/ccleste/level.c"
@@ -28,6 +28,9 @@ else()
         "../../breezybox-cardputer/apps/ccleste/sprites.c"
     )
     list(APPEND BOARD_INCLUDE_DIRS "../../breezybox-cardputer/apps/ccleste")
+    if(NOT BREEZY_BOARD STREQUAL "cardputer-claw")
+        list(APPEND BOARD_SRCS "ssh_app_mode.c")
+    endif()
 endif()
 
 # Register the 'main' component with the build system.
@@ -41,6 +44,10 @@ idf_component_register(
         driver
         fatfs
         esp_lcd
+        esp_http_client
+        esp-tls
+        mbedtls
+        esp_netif
         breezybox-cardputer
         breezy_bt
         breezy_rgb_lcd

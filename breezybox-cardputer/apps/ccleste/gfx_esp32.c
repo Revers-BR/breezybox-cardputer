@@ -33,7 +33,9 @@ extern void rgb_gfx_blit_flip(const uint8_t *data, int x, int y, int w, int h,
 #define SM_150P  0x80
 
 /* BT keyboard raw input API (linked from firmware) */
+#if !defined(BREEZY_SLIM)
 extern int bt_keyboard_is_pressed(unsigned char keycode);
+#endif
 
 /* HID keycodes for game controls */
 #define HID_KEY_A       0x04
@@ -377,7 +379,14 @@ static bool key_down_local(char keycode)
 
 static bool key_down_bt(unsigned char keycode)
 {
+#if defined(BREEZY_SLIM)
+    /* The slim ESP-Claw profile builds without Bluetooth; the built-in
+     * keyboard still works. */
+    (void)keycode;
+    return false;
+#else
     return bt_keyboard_is_pressed(keycode) != 0;
+#endif
 }
 
 static bool key_down_any(char local_key, unsigned char bt_key)

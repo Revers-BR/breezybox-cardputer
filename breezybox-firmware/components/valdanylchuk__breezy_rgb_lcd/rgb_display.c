@@ -381,9 +381,16 @@ void rgb_display_init(void)
 
     // Reserve the lighter 150p graphics framebuffer up front so later Lua/script
     // activity does not fragment the heap before first graphics-mode entry.
+    //
+    // The slim ESP-Claw profile skips this: 36 KB of internal SRAM held for a
+    // graphics mode the agent never enters is the single largest saving
+    // available on a PSRAM-less Cardputer, and ensure_gfx_buffer() still
+    // allocates on demand if something does switch to graphics mode.
+#if !defined(BREEZY_SLIM)
     if (ensure_gfx_buffer(GFX_FB_150P_BYTES) != ESP_OK) {
         ESP_LOGW(TAG, "150p graphics buffer was not preallocated at startup");
     }
+#endif
 
     ESP_ERROR_CHECK(board_display_power_init());
 

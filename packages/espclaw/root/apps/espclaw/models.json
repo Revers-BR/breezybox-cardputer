@@ -1,0 +1,19 @@
+{
+  "_comment": "Model catalogue for claw. Edit freely - the firmware does not validate these names, it only offers them. The first entry for a backend is its default. Lives at /sd/claw/models.json, which survives reflashing.",
+  "anthropic": [
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-haiku-4-5"
+  ],
+  "openai": [
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-5",
+    "o3-mini"
+  ],
+  "gemini": [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash"
+  ]
+}

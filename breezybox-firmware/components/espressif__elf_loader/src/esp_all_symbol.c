@@ -9,6 +9,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "sdkconfig.h"
+
 #include <stddef.h>
 
 #include "private/elf_symbol.h"
@@ -130,7 +132,9 @@ extern int spi_bus_register_destroy_func;
 extern int strerror_l;
 extern int spicommon_dma_chan_alloc;
 extern int systimer_hal_connect_alarm_counter;
+#if CONFIG_LWIP_IPV6
 extern int mld6_leavegroup_netif;
+#endif
 extern int esp_time_impl_get_boot_time;
 extern int rtc_dig_clk8m_enable;
 extern int g_panic_abort;
@@ -144,7 +148,9 @@ extern int udp_bind_netif;
 extern int esp_elf_print_phdr;
 extern int esp_mprot_get_split_addr_lock;
 extern int esp_libc_init;
+#if CONFIG_LWIP_IPV6
 extern int memp_FRAG_PBUF;
+#endif
 extern int uart_hal_set_data_bit_num;
 extern int heap_caps_free;
 extern int console_fcntl;
@@ -160,7 +166,9 @@ extern int registered_heaps;
 extern int nvs_sec_provider_include_impl;
 extern int igmp_input;
 extern int localeconv;
+#if CONFIG_LWIP_IPV6
 extern int default_router_list;
+#endif
 extern int spi_hal_push_tx_buffer;
 extern int esp_libc_include_init_funcs;
 extern int _kill_r;
@@ -168,7 +176,9 @@ extern int tzset;
 extern int esp_system_include_startup_funcs;
 extern int setlocale;
 extern int xt_ints_on;
+#if CONFIG_LWIP_IPV6
 extern int ip6_frag;
+#endif
 extern int vListInsert;
 extern int ip4_route_src_hook;
 extern int spi_flash_chip_issi_get_io_mode;
@@ -203,7 +213,9 @@ extern int gpio_sleep_sel_dis;
 extern int __mprec_tinytens;
 extern int spi_flash_hal_suspend;
 extern int tcp_pcb_lists;
+#if CONFIG_LWIP_IPV6
 extern int netif_get_ip6_addr_match;
+#endif
 extern int raw_bind;
 extern int sar_periph_ctrl_init;
 extern int gpio_od_enable;
@@ -235,12 +247,16 @@ extern int esp_cache_err_get_panic_info;
 extern int _lock_acquire;
 extern int close;
 extern int gpio_config;
+#if CONFIG_LWIP_IPV6
 extern int mld6_input;
+#endif
 extern int gpio_func_sel;
 extern int g_startup_time;
 extern int spicommon_periph_free;
 extern int tlsf_create;
+#if CONFIG_LWIP_IPV6
 extern int nd6_find_route;
+#endif
 extern int sys_arch_sem_wait;
 extern int esp_flash_chip_winbond;
 extern int __action_table;
@@ -278,8 +294,12 @@ extern int panic_soc_check_pseudo_cause;
 extern int esp_vfs_register_fs;
 extern int __sfp_lock_release;
 extern int esp_elf_deinit;
+#if CONFIG_LWIP_IPV6
 extern int ip_addr_any_type;
+#endif
+#if CONFIG_LWIP_IPV6
 extern int icmp6_input;
+#endif
 extern int tcp_active_pcbs_changed;
 extern int cache_hal_invalidate_addr;
 extern int xQueueGenericSendFromISR;
@@ -288,7 +308,9 @@ extern int rtc_time_us_to_slowclk;
 extern int strncmp;
 extern int spicommon_cs_free_io;
 extern int heap_caps_get_largest_free_block;
+#if CONFIG_LWIP_IPV6
 extern int nd6_input;
+#endif
 extern int esp_mmu_map_get_max_consecutive_free_block_size;
 extern int xRingbufferGetCurFreeSize;
 extern int memp_TCP_PCB;
@@ -353,7 +375,9 @@ extern int pbuf_add_header_force;
 extern int netconn_free;
 extern int rgb_display_init;
 extern int panic_print_registers;
+#if CONFIG_LWIP_IPV6
 extern int prefix_list;
+#endif
 extern int ip4_output_if_opt;
 extern int strlcat;
 extern int esp_chip_info;
@@ -370,7 +394,9 @@ extern int spi_flash_hal_erase_block;
 extern int mspi_timing_enter_high_speed_mode;
 extern int periph_rcc_exit;
 extern int spi_flash_chip_gd_get_io_mode;
+#if CONFIG_LWIP_IPV6
 extern int icmp6_dest_unreach;
+#endif
 extern int _tzset_unlocked;
 extern int esp_register_freertos_tick_hook_for_cpu;
 extern int _close_r;
@@ -460,7 +486,9 @@ extern int fflush;
 extern int pthread_include_pthread_cond_var_impl;
 extern int __sfp;
 extern int __sinit;
+#if CONFIG_LWIP_IPV6
 extern int retrans_timer;
+#endif
 extern int netif_invoke_ext_callback;
 extern int _esp_error_check_failed;
 extern int xTaskGetTickCountFromISR;
@@ -515,7 +543,9 @@ extern int pthread_getspecific;
 extern int memcpy;
 extern int uart_hal_get_data_bit_num;
 extern int vTaskPrioritySet;
+#if CONFIG_LWIP_IPV6
 extern int ip_input;
+#endif
 extern int vRingbufferReturnItem;
 extern int __mcmp;
 extern int multi_heap_get_info_impl;
@@ -651,7 +681,9 @@ extern int __register_exitproc;
 extern int console_close;
 extern int panic_restart;
 extern int esp_register_shutdown_handler;
+#if CONFIG_LWIP_IPV6
 extern int neighbor_cache;
+#endif
 extern int esp_panic_handler;
 extern int netbuf_free;
 extern int xQueueGiveFromISR;
@@ -682,7 +714,9 @@ extern int putchar;
 extern int ip4addr_ntoa_r;
 extern int __getopt_long_only_r;
 extern int netconn_write_partly;
+#if CONFIG_LWIP_IPV6
 extern int destination_cache;
+#endif
 extern int g_panic_abort_details;
 extern int igmp_tmr;
 extern int __gettzinfo;
@@ -712,7 +746,9 @@ extern int gdma_ahb_hal_enable_burst;
 extern int sys_sem_signal;
 extern int udp_connect;
 extern int vTaskPriorityDisinheritAfterTimeout;
+#if CONFIG_LWIP_IPV6
 extern int icmp6_param_problem;
+#endif
 extern int getenv;
 extern int ledc_bind_channel_timer;
 extern int lwip_netconn_do_disconnect;
@@ -753,7 +789,9 @@ extern int panic_get_address;
 extern int systimer_us_to_ticks;
 extern int esp_cpu_stall;
 extern int esp_elf_arch_relocate;
+#if CONFIG_LWIP_IPV6
 extern int mld6_lookfor_group;
+#endif
 extern int esp_flash_chip_issi;
 extern int spi_bus_get_attr;
 extern int esp_opiflash_init;
@@ -832,7 +870,9 @@ extern int mmu_hal_paddr_to_vaddr;
 extern int tcp_active_pcbs;
 extern int lwip_socket;
 extern int gdma_ahb_hal_reset;
+#if CONFIG_LWIP_IPV6
 extern int nd6_reachability_hint;
+#endif
 extern int uart_hal_set_parity;
 extern int esp_startup_start_app;
 extern int spi_flash_hal_set_write_protect;
@@ -878,7 +918,9 @@ extern int mmu_hal_map_region;
 extern int pbuf_remove_header;
 extern int spi_flash_hal_setup_auto_resume_mode;
 extern int rtc_dig_clk8m_disable;
+#if CONFIG_LWIP_IPV6
 extern int ip6_output_if_src;
+#endif
 extern int xQueueGenericGetStaticBuffers;
 extern int esp_cache_unfreeze_caches_enable_interrupts;
 extern int gdma_reset;
@@ -933,7 +975,9 @@ extern int heap_caps_malloc_default;
 extern int g_twdt_isr;
 extern int call_start_cpu1;
 extern int raw_sendto_if_src;
+#if CONFIG_LWIP_IPV6
 extern int ip6_select_source_address;
+#endif
 extern int usb_serial_jtag_vfs_include_dev_init;
 extern int esp_cache_suspend_ext_mem_cache;
 extern int __default_global_locale;
@@ -966,7 +1010,9 @@ extern int strcat;
 extern int __lock___arc4random_mutex;
 extern int spi_flash_op_lock;
 extern int heap_caps_get_info;
+#if CONFIG_LWIP_IPV6
 extern int nd6_get_destination_mtu;
+#endif
 extern int vPortYieldFromInt;
 extern int __ssrefill_r;
 extern int spi_flash_guard_set;
@@ -1130,7 +1176,9 @@ extern int io_mux_force_disable_lp_io_clock;
 extern int gdma_hal_set_burst_size;
 extern int __divdf3;
 extern int getopt_long_only;
+#if CONFIG_LWIP_IPV6
 extern int netif_ip6_addr_set_state;
+#endif
 extern int igmp_joingroup_netif;
 extern int tcp_send_fin;
 extern int siscanf;
@@ -1175,7 +1223,9 @@ extern int _lseek_r;
 extern int gpio_pullup_en;
 extern int _strtoll_r;
 extern int spi_flash_chip_list_check;
+#if CONFIG_LWIP_IPV6
 extern int memp_ND6_QUEUE;
+#endif
 extern int access;
 extern int spi_flash_chip_generic_read_unique_id;
 extern int spi_hal_config_io_default_level;
@@ -1224,7 +1274,9 @@ extern int gpio_iomux_output;
 extern int rtc_clk_slow_freq_get_hz;
 extern int netbuf_delete;
 extern int gdma_connect;
+#if CONFIG_LWIP_IPV6
 extern int mld6_tmr;
+#endif
 extern int __gethex;
 extern int esp_mprot_get_default_main_split_addr;
 extern int offset_cpsa;
@@ -1270,9 +1322,13 @@ extern int __ssvfscanf_r;
 extern int __swsetup_r;
 extern int lwip_netconn_do_recv;
 extern int Cache_Freeze_ICache_Enable;
+#if CONFIG_LWIP_IPV6
 extern int ip6_output_if;
+#endif
 extern int udp_recv;
+#if CONFIG_LWIP_IPV6
 extern int ip6_route;
+#endif
 extern int uart_get_buffered_data_len;
 extern int _fseeko_r;
 extern int ilg_int_st_bits;
@@ -1347,7 +1403,9 @@ extern int spi_flash_chip_mxic_opi_read_reg;
 extern int uxQueueMessagesWaiting;
 extern int xQueueSemaphoreTake;
 extern int tlsf_fit_size;
+#if CONFIG_LWIP_IPV6
 extern int ip6_chksum_pseudo;
+#endif
 extern int xRingbufferSend;
 extern int ledc_hal_set_duty_int_part;
 extern int esp_time_impl_get_time_since_boot;
@@ -1368,7 +1426,9 @@ extern int esp_intr_enable_source;
 extern int __fp_lock_all;
 extern int systimer_hal_select_alarm_mode;
 extern int ip4_input;
+#if CONFIG_LWIP_IPV6
 extern int ip6_options_add_hbh_ra;
+#endif
 extern int __srget;
 extern int ledc_hal_set_duty_start;
 extern int memp_free;
@@ -1378,7 +1438,9 @@ extern int spi_flash_chip_gd_suspend_cmd_conf;
 extern int lwip_recv;
 extern int _strtol_r;
 extern int s_keys;
+#if CONFIG_LWIP_IPV6
 extern int memp_MLD6_GROUP;
+#endif
 extern int _mbtowc_r;
 extern int tcpip_try_callback;
 extern int panic_abort;
@@ -1433,7 +1495,9 @@ extern int ledc_channel_config;
 extern int memp_ARP_QUEUE;
 extern int sys_arch_mbox_tryfetch;
 extern int _frxt_int_exit;
+#if CONFIG_LWIP_IPV6
 extern int reachable_time;
+#endif
 extern int xt_unhandled_exception;
 extern int netconn_bind;
 extern int tcp_write;
@@ -1464,7 +1528,9 @@ extern int rom_flash_chip_dummy;
 extern int pcTaskGetName;
 extern int xQueueReceiveFromISR;
 extern int udp_sendto_if;
+#if CONFIG_LWIP_IPV6
 extern int mld6_joingroup_netif;
+#endif
 extern int __fixdfdi;
 extern int _times_r;
 extern int spi_flash_chip_generic_erase_sector;
@@ -1504,7 +1570,9 @@ extern int spi_flash_init_lock;
 extern int sprintf;
 extern int spi_flash_set_erasing_flag;
 extern int __localeconv_l;
+#if CONFIG_LWIP_IPV6
 extern int ip6_input;
+#endif
 extern int iswspace_l;
 extern int esp_mspi_get_io;
 extern int __wrap_longjmp;
@@ -1675,7 +1743,9 @@ extern int __tz_lock;
 extern int _strerror_r;
 extern int spi_device_queue_trans;
 extern int __call_exitprocs;
+#if CONFIG_LWIP_IPV6
 extern int ip6_addr_any;
+#endif
 extern int spi_flash_encryption_hal_disable;
 extern int pbuf_try_get_at;
 extern int raw_input;
@@ -1700,9 +1770,13 @@ extern int esp_clk_tree_xtal32k_get_freq_hz;
 extern int gdma_disconnect;
 extern int __sccl;
 extern int malloc;
+#if CONFIG_LWIP_IPV6
 extern int nd6_adjust_mld_membership;
+#endif
 extern int cache_hal_is_cache_enabled;
+#if CONFIG_LWIP_IPV6
 extern int mld6_report_groups;
+#endif
 extern int lwip_hook_tcp_isn;
 extern int task_wdt_timeout_abort;
 extern int strcmp;
@@ -1844,7 +1918,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(strerror_l),
     ESP_ELFSYM_EXPORT(spicommon_dma_chan_alloc),
     ESP_ELFSYM_EXPORT(systimer_hal_connect_alarm_counter),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(mld6_leavegroup_netif),
+#endif
     ESP_ELFSYM_EXPORT(esp_time_impl_get_boot_time),
     ESP_ELFSYM_EXPORT(rtc_dig_clk8m_enable),
     ESP_ELFSYM_EXPORT(g_panic_abort),
@@ -1858,7 +1934,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(esp_elf_print_phdr),
     ESP_ELFSYM_EXPORT(esp_mprot_get_split_addr_lock),
     ESP_ELFSYM_EXPORT(esp_libc_init),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(memp_FRAG_PBUF),
+#endif
     ESP_ELFSYM_EXPORT(uart_hal_set_data_bit_num),
     ESP_ELFSYM_EXPORT(heap_caps_free),
     ESP_ELFSYM_EXPORT(console_fcntl),
@@ -1874,7 +1952,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(nvs_sec_provider_include_impl),
     ESP_ELFSYM_EXPORT(igmp_input),
     ESP_ELFSYM_EXPORT(localeconv),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(default_router_list),
+#endif
     ESP_ELFSYM_EXPORT(spi_hal_push_tx_buffer),
     ESP_ELFSYM_EXPORT(esp_libc_include_init_funcs),
     ESP_ELFSYM_EXPORT(_kill_r),
@@ -1882,7 +1962,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(esp_system_include_startup_funcs),
     ESP_ELFSYM_EXPORT(setlocale),
     ESP_ELFSYM_EXPORT(xt_ints_on),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_frag),
+#endif
     ESP_ELFSYM_EXPORT(vListInsert),
     ESP_ELFSYM_EXPORT(ip4_route_src_hook),
     ESP_ELFSYM_EXPORT(spi_flash_chip_issi_get_io_mode),
@@ -1917,7 +1999,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(__mprec_tinytens),
     ESP_ELFSYM_EXPORT(spi_flash_hal_suspend),
     ESP_ELFSYM_EXPORT(tcp_pcb_lists),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(netif_get_ip6_addr_match),
+#endif
     ESP_ELFSYM_EXPORT(raw_bind),
     ESP_ELFSYM_EXPORT(sar_periph_ctrl_init),
     ESP_ELFSYM_EXPORT(gpio_od_enable),
@@ -1949,12 +2033,16 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(_lock_acquire),
     ESP_ELFSYM_EXPORT(close),
     ESP_ELFSYM_EXPORT(gpio_config),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(mld6_input),
+#endif
     ESP_ELFSYM_EXPORT(gpio_func_sel),
     ESP_ELFSYM_EXPORT(g_startup_time),
     ESP_ELFSYM_EXPORT(spicommon_periph_free),
     ESP_ELFSYM_EXPORT(tlsf_create),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(nd6_find_route),
+#endif
     ESP_ELFSYM_EXPORT(sys_arch_sem_wait),
     ESP_ELFSYM_EXPORT(esp_flash_chip_winbond),
     ESP_ELFSYM_EXPORT(__action_table),
@@ -1992,8 +2080,12 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(esp_vfs_register_fs),
     ESP_ELFSYM_EXPORT(__sfp_lock_release),
     ESP_ELFSYM_EXPORT(esp_elf_deinit),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip_addr_any_type),
+#endif
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(icmp6_input),
+#endif
     ESP_ELFSYM_EXPORT(tcp_active_pcbs_changed),
     ESP_ELFSYM_EXPORT(cache_hal_invalidate_addr),
     ESP_ELFSYM_EXPORT(xQueueGenericSendFromISR),
@@ -2002,7 +2094,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(strncmp),
     ESP_ELFSYM_EXPORT(spicommon_cs_free_io),
     ESP_ELFSYM_EXPORT(heap_caps_get_largest_free_block),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(nd6_input),
+#endif
     ESP_ELFSYM_EXPORT(esp_mmu_map_get_max_consecutive_free_block_size),
     ESP_ELFSYM_EXPORT(xRingbufferGetCurFreeSize),
     ESP_ELFSYM_EXPORT(memp_TCP_PCB),
@@ -2067,7 +2161,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(netconn_free),
     ESP_ELFSYM_EXPORT(rgb_display_init),
     ESP_ELFSYM_EXPORT(panic_print_registers),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(prefix_list),
+#endif
     ESP_ELFSYM_EXPORT(ip4_output_if_opt),
     ESP_ELFSYM_EXPORT(strlcat),
     ESP_ELFSYM_EXPORT(esp_chip_info),
@@ -2084,7 +2180,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(mspi_timing_enter_high_speed_mode),
     ESP_ELFSYM_EXPORT(periph_rcc_exit),
     ESP_ELFSYM_EXPORT(spi_flash_chip_gd_get_io_mode),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(icmp6_dest_unreach),
+#endif
     ESP_ELFSYM_EXPORT(_tzset_unlocked),
     ESP_ELFSYM_EXPORT(esp_register_freertos_tick_hook_for_cpu),
     ESP_ELFSYM_EXPORT(_close_r),
@@ -2174,7 +2272,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(pthread_include_pthread_cond_var_impl),
     ESP_ELFSYM_EXPORT(__sfp),
     ESP_ELFSYM_EXPORT(__sinit),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(retrans_timer),
+#endif
     ESP_ELFSYM_EXPORT(netif_invoke_ext_callback),
     ESP_ELFSYM_EXPORT(_esp_error_check_failed),
     ESP_ELFSYM_EXPORT(xTaskGetTickCountFromISR),
@@ -2229,7 +2329,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(memcpy),
     ESP_ELFSYM_EXPORT(uart_hal_get_data_bit_num),
     ESP_ELFSYM_EXPORT(vTaskPrioritySet),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip_input),
+#endif
     ESP_ELFSYM_EXPORT(vRingbufferReturnItem),
     ESP_ELFSYM_EXPORT(__mcmp),
     ESP_ELFSYM_EXPORT(multi_heap_get_info_impl),
@@ -2365,7 +2467,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(console_close),
     ESP_ELFSYM_EXPORT(panic_restart),
     ESP_ELFSYM_EXPORT(esp_register_shutdown_handler),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(neighbor_cache),
+#endif
     ESP_ELFSYM_EXPORT(esp_panic_handler),
     ESP_ELFSYM_EXPORT(netbuf_free),
     ESP_ELFSYM_EXPORT(xQueueGiveFromISR),
@@ -2396,7 +2500,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(ip4addr_ntoa_r),
     ESP_ELFSYM_EXPORT(__getopt_long_only_r),
     ESP_ELFSYM_EXPORT(netconn_write_partly),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(destination_cache),
+#endif
     ESP_ELFSYM_EXPORT(g_panic_abort_details),
     ESP_ELFSYM_EXPORT(igmp_tmr),
     ESP_ELFSYM_EXPORT(__gettzinfo),
@@ -2426,7 +2532,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(sys_sem_signal),
     ESP_ELFSYM_EXPORT(udp_connect),
     ESP_ELFSYM_EXPORT(vTaskPriorityDisinheritAfterTimeout),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(icmp6_param_problem),
+#endif
     ESP_ELFSYM_EXPORT(getenv),
     ESP_ELFSYM_EXPORT(ledc_bind_channel_timer),
     ESP_ELFSYM_EXPORT(lwip_netconn_do_disconnect),
@@ -2467,7 +2575,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(systimer_us_to_ticks),
     ESP_ELFSYM_EXPORT(esp_cpu_stall),
     ESP_ELFSYM_EXPORT(esp_elf_arch_relocate),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(mld6_lookfor_group),
+#endif
     ESP_ELFSYM_EXPORT(esp_flash_chip_issi),
     ESP_ELFSYM_EXPORT(spi_bus_get_attr),
     ESP_ELFSYM_EXPORT(esp_opiflash_init),
@@ -2546,7 +2656,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(tcp_active_pcbs),
     ESP_ELFSYM_EXPORT(lwip_socket),
     ESP_ELFSYM_EXPORT(gdma_ahb_hal_reset),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(nd6_reachability_hint),
+#endif
     ESP_ELFSYM_EXPORT(uart_hal_set_parity),
     ESP_ELFSYM_EXPORT(esp_startup_start_app),
     ESP_ELFSYM_EXPORT(spi_flash_hal_set_write_protect),
@@ -2592,7 +2704,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(pbuf_remove_header),
     ESP_ELFSYM_EXPORT(spi_flash_hal_setup_auto_resume_mode),
     ESP_ELFSYM_EXPORT(rtc_dig_clk8m_disable),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_output_if_src),
+#endif
     ESP_ELFSYM_EXPORT(xQueueGenericGetStaticBuffers),
     ESP_ELFSYM_EXPORT(esp_cache_unfreeze_caches_enable_interrupts),
     ESP_ELFSYM_EXPORT(gdma_reset),
@@ -2647,7 +2761,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(g_twdt_isr),
     ESP_ELFSYM_EXPORT(call_start_cpu1),
     ESP_ELFSYM_EXPORT(raw_sendto_if_src),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_select_source_address),
+#endif
     ESP_ELFSYM_EXPORT(usb_serial_jtag_vfs_include_dev_init),
     ESP_ELFSYM_EXPORT(esp_cache_suspend_ext_mem_cache),
     ESP_ELFSYM_EXPORT(__default_global_locale),
@@ -2680,7 +2796,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(__lock___arc4random_mutex),
     ESP_ELFSYM_EXPORT(spi_flash_op_lock),
     ESP_ELFSYM_EXPORT(heap_caps_get_info),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(nd6_get_destination_mtu),
+#endif
     ESP_ELFSYM_EXPORT(vPortYieldFromInt),
     ESP_ELFSYM_EXPORT(__ssrefill_r),
     ESP_ELFSYM_EXPORT(spi_flash_guard_set),
@@ -2844,7 +2962,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(gdma_hal_set_burst_size),
     ESP_ELFSYM_EXPORT(__divdf3),
     ESP_ELFSYM_EXPORT(getopt_long_only),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(netif_ip6_addr_set_state),
+#endif
     ESP_ELFSYM_EXPORT(igmp_joingroup_netif),
     ESP_ELFSYM_EXPORT(tcp_send_fin),
     ESP_ELFSYM_EXPORT(siscanf),
@@ -2889,7 +3009,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(gpio_pullup_en),
     ESP_ELFSYM_EXPORT(_strtoll_r),
     ESP_ELFSYM_EXPORT(spi_flash_chip_list_check),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(memp_ND6_QUEUE),
+#endif
     ESP_ELFSYM_EXPORT(access),
     ESP_ELFSYM_EXPORT(spi_flash_chip_generic_read_unique_id),
     ESP_ELFSYM_EXPORT(spi_hal_config_io_default_level),
@@ -2938,7 +3060,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(rtc_clk_slow_freq_get_hz),
     ESP_ELFSYM_EXPORT(netbuf_delete),
     ESP_ELFSYM_EXPORT(gdma_connect),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(mld6_tmr),
+#endif
     ESP_ELFSYM_EXPORT(__gethex),
     ESP_ELFSYM_EXPORT(esp_mprot_get_default_main_split_addr),
     ESP_ELFSYM_EXPORT(offset_cpsa),
@@ -2984,9 +3108,13 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(__swsetup_r),
     ESP_ELFSYM_EXPORT(lwip_netconn_do_recv),
     ESP_ELFSYM_EXPORT(Cache_Freeze_ICache_Enable),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_output_if),
+#endif
     ESP_ELFSYM_EXPORT(udp_recv),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_route),
+#endif
     ESP_ELFSYM_EXPORT(uart_get_buffered_data_len),
     ESP_ELFSYM_EXPORT(_fseeko_r),
     ESP_ELFSYM_EXPORT(ilg_int_st_bits),
@@ -3061,7 +3189,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(uxQueueMessagesWaiting),
     ESP_ELFSYM_EXPORT(xQueueSemaphoreTake),
     ESP_ELFSYM_EXPORT(tlsf_fit_size),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_chksum_pseudo),
+#endif
     ESP_ELFSYM_EXPORT(xRingbufferSend),
     ESP_ELFSYM_EXPORT(ledc_hal_set_duty_int_part),
     ESP_ELFSYM_EXPORT(esp_time_impl_get_time_since_boot),
@@ -3082,7 +3212,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(__fp_lock_all),
     ESP_ELFSYM_EXPORT(systimer_hal_select_alarm_mode),
     ESP_ELFSYM_EXPORT(ip4_input),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_options_add_hbh_ra),
+#endif
     ESP_ELFSYM_EXPORT(__srget),
     ESP_ELFSYM_EXPORT(ledc_hal_set_duty_start),
     ESP_ELFSYM_EXPORT(memp_free),
@@ -3092,7 +3224,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(lwip_recv),
     ESP_ELFSYM_EXPORT(_strtol_r),
     ESP_ELFSYM_EXPORT(s_keys),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(memp_MLD6_GROUP),
+#endif
     ESP_ELFSYM_EXPORT(_mbtowc_r),
     ESP_ELFSYM_EXPORT(tcpip_try_callback),
     ESP_ELFSYM_EXPORT(panic_abort),
@@ -3147,7 +3281,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(memp_ARP_QUEUE),
     ESP_ELFSYM_EXPORT(sys_arch_mbox_tryfetch),
     ESP_ELFSYM_EXPORT(_frxt_int_exit),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(reachable_time),
+#endif
     ESP_ELFSYM_EXPORT(xt_unhandled_exception),
     ESP_ELFSYM_EXPORT(netconn_bind),
     ESP_ELFSYM_EXPORT(tcp_write),
@@ -3178,7 +3314,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(pcTaskGetName),
     ESP_ELFSYM_EXPORT(xQueueReceiveFromISR),
     ESP_ELFSYM_EXPORT(udp_sendto_if),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(mld6_joingroup_netif),
+#endif
     ESP_ELFSYM_EXPORT(__fixdfdi),
     ESP_ELFSYM_EXPORT(_times_r),
     ESP_ELFSYM_EXPORT(spi_flash_chip_generic_erase_sector),
@@ -3218,7 +3356,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(sprintf),
     ESP_ELFSYM_EXPORT(spi_flash_set_erasing_flag),
     ESP_ELFSYM_EXPORT(__localeconv_l),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_input),
+#endif
     ESP_ELFSYM_EXPORT(iswspace_l),
     ESP_ELFSYM_EXPORT(esp_mspi_get_io),
     ESP_ELFSYM_EXPORT(__wrap_longjmp),
@@ -3389,7 +3529,9 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(_strerror_r),
     ESP_ELFSYM_EXPORT(spi_device_queue_trans),
     ESP_ELFSYM_EXPORT(__call_exitprocs),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(ip6_addr_any),
+#endif
     ESP_ELFSYM_EXPORT(spi_flash_encryption_hal_disable),
     ESP_ELFSYM_EXPORT(pbuf_try_get_at),
     ESP_ELFSYM_EXPORT(raw_input),
@@ -3414,9 +3556,13 @@ const struct esp_elfsym g_customer_elfsyms[] = {
     ESP_ELFSYM_EXPORT(gdma_disconnect),
     ESP_ELFSYM_EXPORT(__sccl),
     ESP_ELFSYM_EXPORT(malloc),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(nd6_adjust_mld_membership),
+#endif
     ESP_ELFSYM_EXPORT(cache_hal_is_cache_enabled),
+#if CONFIG_LWIP_IPV6
     ESP_ELFSYM_EXPORT(mld6_report_groups),
+#endif
     ESP_ELFSYM_EXPORT(lwip_hook_tcp_isn),
     ESP_ELFSYM_EXPORT(task_wdt_timeout_abort),
     ESP_ELFSYM_EXPORT(strcmp),

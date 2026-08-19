@@ -2,7 +2,9 @@
 
 #include "esp_err.h"
 #include "esp_console.h"
+#if !defined(BREEZY_SLIM)
 #include <libssh/libssh.h>
+#endif
 #include <stdint.h>
 #include <stddef.h>
 
@@ -74,4 +76,6 @@ void breezybox_export_symbols(void);
  */
 int breezy_http_download(const char *url, const char *dest_path);
 
+#if !defined(BREEZY_SLIM)
 void breezybox_set_ssh_app_mode_runner(int (*runner)(ssh_session session));
+#endif

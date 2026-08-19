@@ -46,12 +46,20 @@ int cmd_sleep(int argc, char **argv);
 int cmd_eget(int argc, char **argv);
 int cmd_ping(int argc, char **argv);
 int cmd_lua(int argc, char **argv);
+int cmd_claw(int argc, char **argv);
 #ifdef BREEZY_BOARD_CARDPUTER
 int cmd_ccleste(int argc, char **argv);
 #endif
+/* breezy.https sub-table (cmd/lua_https.c). Declared here so cmd/lua.c can
+ * attach it without exposing the rest of that translation unit. */
+struct luaL_Reg;
+const struct luaL_Reg *breezy_lua_https_lib(void);
+
+#if !defined(BREEZY_SLIM)
 int cmd_ssh(int argc, char **argv);
 int cmd_sshcfg(int argc, char **argv);
 int cmd_scp(int argc, char **argv);
+#endif
 int cmd_wifi(int argc, char **argv);
 int cmd_httpd(int argc, char **argv);
 int cmd_head(int argc, char **argv);

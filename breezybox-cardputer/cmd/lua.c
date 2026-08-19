@@ -24,6 +24,8 @@
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
 
+#include <limits.h>
+
 #include "cJSON.h"
 #include "lauxlib.h"
 #include "lua.h"
@@ -1764,7 +1766,16 @@ static void lua_push_from_cjson(lua_State *L, const cJSON *node)
         return;
     }
     if (cJSON_IsNumber(node)) {
-        lua_pushnumber(L, node->valuedouble);
+        /* Push whole numbers as Lua integers. Otherwise every JSON int comes
+         * back as a float and stringifies as "16.0", which then leaks into
+         * re-encoded requests and printed output. */
+        double d = node->valuedouble;
+        if (d >= (double)LLONG_MIN && d <= (double)LLONG_MAX &&
+            d == (double)(long long)d) {
+            lua_pushinteger(L, (lua_Integer)(long long)d);
+        } else {
+            lua_pushnumber(L, d);
+        }
         return;
     }
     if (cJSON_IsString(node)) {
@@ -3850,7 +3861,76 @@ static int l_gfx_wait_vsync(lua_State *L)
     return 0;
 }
 
+/*
+ * breezy.write(text) - write to the console with no trailing newline.
+ *
+ * The sandbox does not open the io library, so print() is the only output
+ * primitive and it always appends a newline. Streaming token-by-token output
+ * needs to be able to continue a line.
+ */
+static int l_breezy_write(lua_State *L)
+{
+    size_t len = 0;
+    const char *text = luaL_checklstring(L, 1, &len);
+    if (len > 0) {
+        fwrite(text, 1, len, stdout);
+        fflush(stdout);
+    }
+    return 0;
+}
+
+/*
+ * breezy.build() -> { profile=, bluetooth=, built= }
+ *
+ * Identifies the running binary. `built` is the compile timestamp, which is the
+ * only reliable way to tell whether a reflash actually took -- heap numbers
+ * alone are easy to misread.
+ */
+static int l_breezy_build(lua_State *L)
+{
+    lua_newtable(L);
+
+#if defined(BREEZY_SLIM)
+    lua_pushstring(L, "cardputer-claw (slim)");
+#else
+    lua_pushstring(L, "cardputer/adv (full)");
+#endif
+    lua_setfield(L, -2, "profile");
+
+#if defined(CONFIG_BT_ENABLED)
+    lua_pushboolean(L, 1);
+#else
+    lua_pushboolean(L, 0);
+#endif
+    lua_setfield(L, -2, "bluetooth");
+
+    lua_pushstring(L, __DATE__ " " __TIME__);
+    lua_setfield(L, -2, "built");
+
+    return 1;
+}
+
+/*
+ * breezy.heap() -> free, min_free, largest
+ *
+ * Internal (DRAM) heap only, which is the number that matters on a board with
+ * no PSRAM: TLS handshakes fail with MBEDTLS_ERR_SSL_ALLOC_FAILED long before
+ * the total looks alarming, because what runs out is a large-enough
+ * *contiguous* block.
+ */
+static int l_breezy_heap(lua_State *L)
+{
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    lua_pushinteger(L, (lua_Integer)heap_caps_get_free_size(caps));
+    lua_pushinteger(L, (lua_Integer)heap_caps_get_minimum_free_size(caps));
+    lua_pushinteger(L, (lua_Integer)heap_caps_get_largest_free_block(caps));
+    return 3;
+}
+
 static const luaL_Reg s_breezy_lib[] = {
+    { "write", l_breezy_write },
+    { "heap", l_breezy_heap },
+    { "build", l_breezy_build },
     { "exec", l_breezy_exec },
     { "cwd", l_breezy_cwd },
     { "cd", l_breezy_cd },
@@ -3931,6 +4011,54 @@ static const luaL_Reg s_breezy_storage_lib[] = {
     { "mounts", l_storage_mounts },
     { "info", l_storage_info },
     { NULL, NULL }
+};
+
+/*
+ * breezy.json - thin wrapper over the cJSON converters above.
+ *
+ * Parsing in C matters for the agent: a pure-Lua JSON parser run over every
+ * streamed SSE event is both slow and allocation-heavy on a board with no
+ * PSRAM.
+ */
+static int l_json_encode(lua_State *L)
+{
+    cJSON *node = lua_value_to_cjson(L, 1);
+    if (!node) {
+        lua_pushnil(L);
+        lua_pushstring(L, "cannot encode value");
+        return 2;
+    }
+    char *text = cJSON_PrintUnformatted(node);
+    cJSON_Delete(node);
+    if (!text) {
+        lua_pushnil(L);
+        lua_pushstring(L, "out of memory");
+        return 2;
+    }
+    lua_pushstring(L, text);
+    cJSON_free(text);
+    return 1;
+}
+
+static int l_json_decode(lua_State *L)
+{
+    size_t len = 0;
+    const char *text = luaL_checklstring(L, 1, &len);
+    cJSON *root = cJSON_ParseWithLength(text, len);
+    if (!root) {
+        lua_pushnil(L);
+        lua_pushstring(L, "invalid json");
+        return 2;
+    }
+    lua_push_from_cjson(L, root);
+    cJSON_Delete(root);
+    return 1;
+}
+
+static const luaL_Reg s_breezy_json_lib[] = {
+    { "encode", l_json_encode },
+    { "decode", l_json_decode },
+    { NULL, NULL },
 };
 
 static const luaL_Reg s_breezy_network_lib[] = {
@@ -4048,6 +4176,13 @@ static int lua_push_breezy_named_module(lua_State *L, const char *name)
         luaL_newlib(L, s_breezy_storage_lib);
     } else if (strcmp(name, "network") == 0) {
         luaL_newlib(L, s_breezy_network_lib);
+    } else if (strcmp(name, "json") == 0) {
+        luaL_newlib(L, s_breezy_json_lib);
+    } else if (strcmp(name, "https") == 0) {
+        /* The https table lives in another translation unit, so we only have a
+         * pointer here; luaL_newlib's sizeof() trick needs a real array. */
+        lua_newtable(L);
+        luaL_setfuncs(L, breezy_lua_https_lib(), 0);
     } else if (strcmp(name, "sound") == 0) {
         luaL_newlib(L, s_breezy_sound_lib);
     } else if (strcmp(name, "config") == 0) {
