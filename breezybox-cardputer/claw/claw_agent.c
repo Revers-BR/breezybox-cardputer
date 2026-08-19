@@ -251,8 +251,16 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     }
     backend->headers(client, api_key);
 
-    claw_sse_t parser;
-    claw_sse_init(&parser, on_sse_event, sctx);
+    /* On the heap: the parser carries an 8 KB payload buffer, which the
+     * console task's stack cannot spare. */
+    claw_sse_t *parser = calloc(1, sizeof(*parser));
+    if (!parser) {
+        esp_http_client_cleanup(client);
+        free(ca_pem);
+        snprintf(res->error, sizeof(res->error), "out of memory for the stream parser");
+        return 1;
+    }
+    claw_sse_init(parser, on_sse_event, sctx);
 
     int rc = 1;
     if (esp_http_client_open(client, body_len) != ESP_OK) {
@@ -310,13 +318,13 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
                 memcpy(sctx->error_body + sctx->error_body_len, buf, copy);
                 sctx->error_body_len += copy;
             } else {
-                claw_sse_feed(&parser, buf, (size_t)n);
+                claw_sse_feed(parser, buf, (size_t)n);
             }
             if ((++reads & 0x0F) == 0) {
                 vTaskDelay(1);   /* feed the idle task; TWDT fires at 5 s */
             }
         }
-        claw_sse_finish(&parser);
+        claw_sse_finish(parser);
     }
 
     if (sctx->in_error_body) {
@@ -344,9 +352,19 @@ done:
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     free(ca_pem);
-    if (parser.truncated) {
-        ESP_LOGW(TAG, "an SSE field exceeded its buffer and was truncated");
+    if (parser->truncated) {
+        /* Truncation means an event was dropped, so the turn is incomplete.
+         * Say so rather than leaving the user with "(no text in response)". */
+        ESP_LOGW(TAG, "an SSE field exceeded its %d byte buffer", CLAW_SSE_MAX_DATA);
+        if (res->error[0] == '\0') {
+            snprintf(res->error, sizeof(res->error),
+                     "the model sent a single message larger than %d bytes and it "
+                     "could not be parsed; try asking for something shorter",
+                     CLAW_SSE_MAX_DATA);
+            rc = 1;
+        }
     }
+    free(parser);
     (void)verbose;
     return rc;
 }
@@ -427,37 +445,47 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
      * round burn into one clear message. */
     char last_sig[256] = {0};
 
+    /* Heap, not stack: this carries an 8 KB tool-argument buffer, which the
+     * console task's 16 KB stack cannot spare. */
+    stream_ctx_t *sctxp = calloc(1, sizeof(*sctxp));
+    if (!sctxp) {
+        free(reply);
+        cJSON_Delete(messages);
+        snprintf(res->error, sizeof(res->error), "out of memory starting the request");
+        return 1;
+    }
+
     for (int round = 0; round < CLAW_MAX_TOOL_ROUNDS; round++) {
-        stream_ctx_t sctx = {
-            .backend   = backend,
-            .res       = res,
-            .reply     = reply,
-            .reply_cap = CLAW_TURN_MAX + 1,
-        };
+        memset(sctxp, 0, sizeof(*sctxp));
+        sctxp->backend   = backend;
+        sctxp->res       = res;
+        sctxp->reply     = reply;
+        sctxp->reply_cap = CLAW_TURN_MAX + 1;
         /* Carry the accumulated reply across rounds: a model may narrate before
          * and after a tool call, and both halves belong to one answer. */
-        sctx.reply_len = reply ? strlen(reply) : 0;
+        sctxp->reply_len = reply ? strlen(reply) : 0;
+        stream_ctx_t *sctx = sctxp;
 
-        rc = claw_round(backend, messages, api_key, verbose, res, &sctx);
+        rc = claw_round(backend, messages, api_key, verbose, res, sctx);
 
-        if (rc != 0 || !sctx.has_call) {
+        if (rc != 0 || !sctx->has_call) {
             break;
         }
 
         /* --- run the tool ------------------------------------------------- */
         res->tool_calls++;
 
-        if (sctx.acc.overflow) {
-            printf("\n[tool arguments too large for %s]\n", sctx.acc.name);
+        if (sctx->acc.overflow) {
+            printf("\n[tool arguments too large for %s]\n", sctx->acc.name);
             snprintf(res->error, sizeof(res->error),
                      "%s was called with arguments larger than %d bytes",
-                     sctx.acc.name, CLAW_TOOL_ARGS_MAX);
+                     sctx->acc.name, CLAW_TOOL_ARGS_MAX);
             rc = 1;
             break;
         }
 
         /* Fragments are only valid JSON once the call is complete. */
-        cJSON *call_args = cJSON_Parse(sctx.acc.json_len ? sctx.acc.json : "{}");
+        cJSON *call_args = cJSON_Parse(sctx->acc.json_len ? sctx->acc.json : "{}");
         if (!call_args) {
             call_args = cJSON_CreateObject();
         }
@@ -474,28 +502,28 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
 
         /* name + arguments identify a call well enough to spot a repeat. */
         char sig[256];
-        snprintf(sig, sizeof(sig), "%s(%.180s)", sctx.acc.name, sctx.acc.json);
+        snprintf(sig, sizeof(sig), "%s(%.180s)", sctx->acc.name, sctx->acc.json);
         if (last_sig[0] && strcmp(sig, last_sig) == 0) {
             printf("\n[stopped: %s called twice with the same arguments]\n",
-                   sctx.acc.name);
+                   sctx->acc.name);
             snprintf(res->error, sizeof(res->error),
                      "the model repeated the same %s call; its result was probably "
-                     "not reaching it", sctx.acc.name);
+                     "not reaching it", sctx->acc.name);
             cJSON_Delete(call_args);
             rc = 1;
             break;
         }
         snprintf(last_sig, sizeof(last_sig), "%s", sig);
 
-        printf("\n[tool: %s]\n", sctx.acc.name);
-        claw_tools_run(sctx.acc.name, call_args, tool_out, CLAW_TOOL_RESULT_MAX);
+        printf("\n[tool: %s]\n", sctx->acc.name);
+        claw_tools_run(sctx->acc.name, call_args, tool_out, CLAW_TOOL_RESULT_MAX);
         if (verbose) {
             printf("[result: %.120s%s]\n", tool_out,
                    strlen(tool_out) > 120 ? "..." : "");
         }
 
         if (backend->append_tool_result) {
-            backend->append_tool_result(messages, sctx.acc.name, sctx.acc.id,
+            backend->append_tool_result(messages, sctx->acc.name, sctx->acc.id,
                                         call_args, tool_out);
         }
         cJSON_Delete(call_args);
@@ -513,6 +541,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         claw_session_append("assistant", reply);
     }
 
+    free(sctxp);
     free(reply);
     free(tool_out);
     cJSON_Delete(messages);

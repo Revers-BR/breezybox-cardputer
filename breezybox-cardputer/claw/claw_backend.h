@@ -30,7 +30,11 @@
  * than this is malfunctioning, and growing a buffer mid-stream is exactly what
  * this design avoids.
  */
-#define CLAW_TOOL_ARGS_MAX 1024
+/* Matches CLAW_SSE_MAX_DATA: a tool call carrying a screenful of generated Lua
+ * is the largest thing that crosses this interface, and 1 KB was not enough for
+ * an 8x8 LED pattern. The owning struct is heap-allocated so this can be
+ * generous. */
+#define CLAW_TOOL_ARGS_MAX 8192
 
 typedef struct {
     char   name[64];

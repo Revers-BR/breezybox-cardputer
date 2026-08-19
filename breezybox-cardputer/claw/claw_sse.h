@@ -11,9 +11,18 @@
 
 #include <stddef.h>
 
-/* An SSE `data:` payload. Anthropic and Gemini events fit comfortably; the
- * limit exists so a hostile or malformed stream cannot grow the heap. */
-#define CLAW_SSE_MAX_DATA   2048
+/*
+ * An SSE `data:` payload.
+ *
+ * This has to hold the largest single event, and the largest events are tool
+ * calls: a model writing a screenful of Lua sends the whole thing in one
+ * `data:` line. 2 KB was not enough -- an 8x8 LED pattern overflowed it, the
+ * truncated JSON failed to parse, and the turn produced nothing.
+ *
+ * The struct is heap-allocated (see claw_round) precisely so this can be
+ * generous; it would not fit on the console task stack.
+ */
+#define CLAW_SSE_MAX_DATA   8192
 #define CLAW_SSE_MAX_EVENT  64
 #define CLAW_SSE_MAX_LINE   (CLAW_SSE_MAX_DATA + 32)
 
