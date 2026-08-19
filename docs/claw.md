@@ -179,6 +179,31 @@ claw> read the temperature from it every second for 10 seconds
 I2C, GPIO, ADC and UART accessories all work. Neither keyboard variant touches
 G1 or G2, so accessories behave the same on Cardputer and Cardputer ADV.
 
+### Powering accessories
+
+The Grove `5V` pin shares the board's rail. An accessory that draws real
+current -- a relay, a bright LED, a motor, anything with a coil -- can pull the
+supply down far enough to trip the ESP32-S3 brownout detector, which resets the
+device instantly:
+
+```
+E BOD: Brownout detector was triggered
+rst:0x3 (RTC_SW_SYS_RST)
+```
+
+If that happens:
+
+- **Run from USB, not battery.** The battery path has less headroom, and a
+  scan or a switch-on is a current spike.
+- **Power the accessory separately** and share only ground plus the signal
+  lines, for anything beyond a sensor.
+- Sensors (I2C temperature, pressure, IMU) are typically fine; switching and
+  lighting units usually are not.
+
+This is a hardware limit, not something firmware can work around. `i2c_scan`
+releases the pins when it finishes so nothing is left sinking current, but it
+cannot conjure supply headroom.
+
 ## Memory
 
 Sessions are what was said; memory is what the device should still know next
@@ -322,6 +347,11 @@ Reflash, or copy `ca/gts_root_r1.pem` next to the other files.
 **The model calls the same tool repeatedly** — claw stops and says so. It means
 tool results are not reaching the model. Run `/verbose` to see what is being
 sent back.
+
+**The device resets when touching a Grove accessory** — `E BOD: Brownout
+detector was triggered`. The accessory is drawing more than the rail can
+supply. Run from USB rather than battery, or power the accessory separately.
+See [Powering accessories](#powering-accessories).
 
 **Answers ignore earlier turns** — the transcript is trimmed to
 `context_budget`. Raise it, or `/new` for a fresh session.

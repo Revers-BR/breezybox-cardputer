@@ -464,15 +464,23 @@ static bool i2c_scan_run(const cJSON *args, char *out, size_t out_len)
 
     /* Reuse the Lua binding rather than duplicating the driver setup: it
      * already handles bus install, teardown and the odd address ranges. */
-    char script[256];
+    char script[384];
+    /*
+     * Release the pins afterwards. Leaving them driven keeps sinking current
+     * through whatever is attached, which on a port sharing the 5V rail can
+     * hold the supply down -- a scan has already been seen to brown out the
+     * board with an accessory connected.
+     */
     snprintf(script, sizeof(script),
              "local b=require('breezy') "
              "b.i2c.open(%d,%d,{freq=100000}) "
-             "local d=b.i2c.scan() "
-             "if #d==0 then print('no I2C devices found') else "
-             "for _,a in ipairs(d) do print(string.format('0x%%02X',a)) end end "
-             "b.i2c.close()",
-             sda, scl);
+             "local ok,d=pcall(b.i2c.scan) "
+             "b.i2c.close() "
+             "b.pin.mode(%d,'in') b.pin.mode(%d,'in') "
+             "if not ok then print('scan failed: '..tostring(d)) "
+             "elseif #d==0 then print('no I2C devices found') else "
+             "for _,a in ipairs(d) do print(string.format('0x%%02X',a)) end end",
+             sda, scl, sda, scl);
 
     mkdir("/sd/claw", 0777);
     mkdir("/sd/claw/tmp", 0777);

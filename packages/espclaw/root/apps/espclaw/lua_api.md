@@ -208,6 +208,17 @@ print(breezy.uart.read(h, 64, 100))
 breezy.uart.close(h)
 ```
 
+### Power
+
+The Grove `5V` pin shares the board rail. A relay, bright LED or motor
+can pull it down enough to trip the brownout detector and reset the
+device. Sensors are usually fine; switching loads usually are not. Warn
+the user and suggest USB power or a separate supply when a script is
+about to switch something on.
+
+Release pins when finished (`breezy.pin.mode(n, "in")`, `breezy.i2c.close()`)
+so nothing is left sinking current.
+
 ### Pins already in use -- do not drive these
 
 | Function | Pins |
