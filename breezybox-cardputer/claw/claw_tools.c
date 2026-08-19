@@ -1,5 +1,6 @@
 #include "claw_tools.h"
 #include "claw_config.h"
+#include "claw_memory.h"
 #include "breezy_exec.h"
 #include "breezy_vfs.h"
 
@@ -342,6 +343,97 @@ static bool run_shell_run(const cJSON *args, char *out, size_t out_len)
     return true;
 }
 
+/* ---------------------------------------------------------------- memory -- */
+
+/*
+ * Long-term memory. The index is in every request; bodies are fetched on
+ * demand, which is why memory_read exists at all.
+ */
+static cJSON *memory_save_schema(void)
+{
+    cJSON *props = cJSON_CreateObject();
+    add_prop(props, "name", "string",
+             "Short identifier, letters/digits/dash/underscore only, e.g. "
+             "'grove-sensor' or 'user-preferences'. Saving again with the same "
+             "name replaces it.");
+    add_prop(props, "description", "string",
+             "One line describing what this holds. This is what you see in "
+             "future conversations, so make it specific enough to know whether "
+             "it is worth reading.");
+    add_prop(props, "content", "string", "The facts to remember.");
+    static const char *req[] = { "name", "description", "content" };
+    return schema_of(req, 3, props);
+}
+
+static bool memory_save_run(const cJSON *args, char *out, size_t out_len)
+{
+    const char *name = arg_str(args, "name");
+    const char *desc = arg_str(args, "description");
+    const char *content = arg_str(args, "content");
+    if (!name || !content) {
+        snprintf(out, out_len, "error: 'name' and 'content' are required");
+        return false;
+    }
+    if (!claw_memory_save(name, desc, content)) {
+        snprintf(out, out_len,
+                 "error: could not save '%s' (names may use letters, digits, "
+                 "dash and underscore only)", name);
+        return false;
+    }
+    snprintf(out, out_len, "remembered '%s'", name);
+    return true;
+}
+
+static cJSON *memory_read_schema(void)
+{
+    cJSON *props = cJSON_CreateObject();
+    add_prop(props, "name", "string", "Name from the memory index");
+    static const char *req[] = { "name" };
+    return schema_of(req, 1, props);
+}
+
+static bool memory_read_run(const cJSON *args, char *out, size_t out_len)
+{
+    const char *name = arg_str(args, "name");
+    if (!name) {
+        snprintf(out, out_len, "error: 'name' is required");
+        return false;
+    }
+    if (!claw_memory_read(name, out, out_len)) {
+        snprintf(out, out_len, "error: nothing remembered under '%s'", name);
+        return false;
+    }
+    return true;
+}
+
+static cJSON *memory_forget_schema(void)
+{
+    cJSON *props = cJSON_CreateObject();
+    add_prop(props, "name", "string", "Name from the memory index");
+    static const char *req[] = { "name" };
+    return schema_of(req, 1, props);
+}
+
+static bool memory_forget_run(const cJSON *args, char *out, size_t out_len)
+{
+    const char *name = arg_str(args, "name");
+    if (!name) {
+        snprintf(out, out_len, "error: 'name' is required");
+        return false;
+    }
+    /* Forgetting destroys something the user may care about. */
+    if (!confirm("forget a stored memory", name)) {
+        snprintf(out, out_len, "refused: the user did not approve forgetting '%s'", name);
+        return false;
+    }
+    if (!claw_memory_delete(name)) {
+        snprintf(out, out_len, "error: nothing remembered under '%s'", name);
+        return false;
+    }
+    snprintf(out, out_len, "forgot '%s'", name);
+    return true;
+}
+
 /* -------------------------------------------------------------- i2c_scan -- */
 
 /*
@@ -584,6 +676,9 @@ static const claw_tool_t k_tools[] = {
     { "write_file",  "Write or append text to a file on the device.",  write_file_schema,  write_file_run  },
     { "list_dir",    "List the contents of a directory.",              list_dir_schema,    list_dir_run    },
     { "run_shell",   "Run a BreezyBox shell command and return its output.", run_shell_schema, run_shell_run },
+    { "memory_save", "Remember something for future conversations. Use when you learn a durable fact about the user, their hardware or their project.", memory_save_schema, memory_save_run },
+    { "memory_read", "Read the full text of something in your memory index.", memory_read_schema, memory_read_run },
+    { "memory_forget", "Delete something from memory. Asks the user first.", memory_forget_schema, memory_forget_run },
     { "i2c_scan",    "Scan the Grove port for connected I2C devices and report their addresses.", i2c_scan_schema, i2c_scan_run },
     { "lua_api",     "Get the exact breezy Lua API reference for this device. Call this before writing a Lua script if unsure of a function name.", lua_api_schema, lua_api_run },
     { "run_lua",     "Run a Lua script on the device, optionally saving it as a reusable skill. Use this to control hardware or compute something the other tools cannot.", run_lua_schema, run_lua_run },

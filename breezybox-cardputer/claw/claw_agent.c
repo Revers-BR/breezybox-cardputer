@@ -1,6 +1,7 @@
 #include "claw_agent.h"
 #include "claw_backend.h"
 #include "claw_config.h"
+#include "claw_memory.h"
 #include "claw_session.h"
 #include "claw_sse.h"
 #include "claw_tools.h"
@@ -386,6 +387,27 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         return 1;
     }
     res->turns = cJSON_GetArraySize(messages);
+
+    /* Prepend what the device remembers, as a system turn. Only the index goes
+     * in -- bodies are fetched with memory_read when the model decides one is
+     * relevant. Each backend puts a system turn where it belongs. */
+    {
+        char *mem = malloc(CLAW_MEMORY_INJECT_MAX);
+        if (mem) {
+            if (claw_memory_context(mem, CLAW_MEMORY_INJECT_MAX) > 0) {
+                cJSON *sys = cJSON_CreateObject();
+                if (sys) {
+                    cJSON_AddStringToObject(sys, "role", "system");
+                    cJSON_AddStringToObject(sys, "content", mem);
+                    /* Insert ahead of the conversation. */
+                    if (!cJSON_InsertItemInArray(messages, 0, sys)) {
+                        cJSON_Delete(sys);
+                    }
+                }
+            }
+            free(mem);
+        }
+    }
 
     if (verbose) {
         heap_line("before");

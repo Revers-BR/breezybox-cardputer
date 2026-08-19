@@ -88,6 +88,7 @@ In a session, `/` commands control the agent and everything else is a question:
 | `/new` | start a fresh session |
 | `/show` | print the current transcript |
 | `/skills` | list saved Lua skills |
+| `/memory` | list what claw remembers |
 | `/stats` | status and memory |
 | `/verbose` | toggle transport statistics |
 | `/help` | this list |
@@ -107,6 +108,9 @@ enforced in the tool layer rather than trusted to the model.
 | `run_lua` | Run a Lua script, optionally saving it as a skill |
 | `lua_api` | Look up the device's Lua API |
 | `i2c_scan` | Probe the Grove port for I2C devices |
+| `memory_save` | Remember something for future conversations |
+| `memory_read` | Read a stored memory in full |
+| `memory_forget` | Delete a memory (asks first) |
 | `device_info` | Board, memory and storage |
 
 ### Destructive actions ask first
@@ -174,6 +178,49 @@ claw> read the temperature from it every second for 10 seconds
 
 I2C, GPIO, ADC and UART accessories all work. Neither keyboard variant touches
 G1 or G2, so accessories behave the same on Cardputer and Cardputer ADV.
+
+## Memory
+
+Sessions are what was said; memory is what the device should still know next
+week. Memory persists across sessions and reboots.
+
+```
+claw> the sensor on my grove port is a BMP280 at 0x76, remember that
+
+[tool: memory_save]
+Noted.
+
+claw> /new
+claw> what's on my grove port?
+
+[tool: memory_read]
+A BMP280 barometric sensor at address 0x76.
+```
+
+Stored on the card as one file per memory, plus an index:
+
+```
+/sd/claw/memory/MEMORY.md      index: one line per memory
+/sd/claw/memory/<name>.md      the memory itself
+```
+
+**Only the index is sent with each request**, capped at 768 bytes. Sending
+every memory would spend the context budget on facts that are usually
+irrelevant; sending nothing means the model never knows to look. The index is
+small enough to carry always and specific enough to prompt a `memory_read` when
+something matters.
+
+Inspect it yourself:
+
+```sh
+claw memory list
+claw memory show grove-sensor
+claw memory rm grove-sensor
+```
+
+`/memory` does the same inside a session. `claw stats` shows how many memories
+are stored. `memory_forget` asks before deleting, like other destructive
+actions; `claw memory rm` does not, since you are the one typing it.
 
 ## Sessions
 
@@ -278,6 +325,11 @@ sent back.
 
 **Answers ignore earlier turns** — the transcript is trimmed to
 `context_budget`. Raise it, or `/new` for a fresh session.
+
+**It forgot something you told it to remember** — check `claw memory list`. If
+it is there but unused, the index line may be too vague to prompt a
+`memory_read`; ask it to save again with a clearer description. Only the index
+travels with each request, not the contents.
 
 ## Design notes
 

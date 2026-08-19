@@ -115,6 +115,7 @@ Where things live:
   - `claw_agent.c` request/response round plus the tool loop
   - `claw_backend{,_anthropic,_openai,_gemini}.c` one vtable, three providers
   - `claw_config.c` settings, SD-preferred with flash fallback
+  - `claw_memory.c` long-term memory: index injected per request, bodies on demand
   - `claw_models.c` model catalogue, read from JSON not compiled in
   - `claw_session.c` JSONL transcripts, replayed under a byte budget
   - `claw_sse.c` incremental SSE parser, fixed buffers
@@ -137,6 +138,12 @@ Things worth knowing before changing it:
   native shape into the same array, so **every `build_body` must pass native
   turns through untouched**. Getting this wrong makes the model repeat a tool
   call forever; there is a guard for exactly that.
+- Only the memory *index* is injected into requests (capped at
+  `CLAW_MEMORY_INJECT_MAX`); bodies are fetched with `memory_read`. Injecting
+  everything would spend the context budget on usually-irrelevant facts.
+- Anthropic takes the system prompt as a top-level field and rejects
+  `role: "system"` inside messages, so its `build_body` hoists it out. Gemini
+  hoists it to `systemInstruction`. OpenAI takes it as a message.
 - Nothing may scale with conversation length in RAM. The request body is staged
   to disk and streamed; responses are parsed per SSE event and never buffered.
 - `packages/espclaw/` also contains a superseded Lua implementation of the

@@ -13,6 +13,7 @@
 #include "claw_agent.h"
 #include "claw_backend.h"
 #include "claw_config.h"
+#include "claw_memory.h"
 #include "claw_models.h"
 #include "claw_tools.h"
 #include "claw_session.h"
@@ -36,7 +37,51 @@ static const char *k_shown_keys[] = {
 };
 
 static int cmd_stats(void);
+static int cmd_memory(int argc, char **argv)
+{
+    const char *sub = (argc > 0) ? argv[0] : "list";
+
+    if (strcmp(sub, "list") == 0) {
+        claw_memory_list();
+        return 0;
+    }
+    if (strcmp(sub, "show") == 0) {
+        if (argc < 2) {
+            printf("usage: claw memory show <name>\n");
+            return 1;
+        }
+        char *buf = malloc(CLAW_MEMORY_BODY_MAX + 1);
+        if (!buf) {
+            printf("claw: out of memory\n");
+            return 1;
+        }
+        if (!claw_memory_read(argv[1], buf, CLAW_MEMORY_BODY_MAX + 1)) {
+            printf("claw: nothing remembered under '%s'\n", argv[1]);
+            free(buf);
+            return 1;
+        }
+        printf("%s\n", buf);
+        free(buf);
+        return 0;
+    }
+    if (strcmp(sub, "rm") == 0 || strcmp(sub, "forget") == 0) {
+        if (argc < 2) {
+            printf("usage: claw memory rm <name>\n");
+            return 1;
+        }
+        if (!claw_memory_delete(argv[1])) {
+            printf("claw: nothing remembered under '%s'\n", argv[1]);
+            return 1;
+        }
+        printf("forgot %s\n", argv[1]);
+        return 0;
+    }
+    printf("usage: claw memory <list|show|rm>\n");
+    return 1;
+}
+
 static int cmd_skills(int argc, char **argv);
+static int cmd_memory(int argc, char **argv);
 
 static void print_usage(void)
 {
@@ -46,6 +91,7 @@ static void print_usage(void)
     printf("  claw model [<name>]          show or set the model\n");
     printf("  claw models                  list suggested models\n");
     printf("  claw backend [<name>]        show or switch provider\n");
+    printf("  claw memory <list|show|rm>   what claw remembers about you\n");
     printf("  claw skills [rm <name>]      scripts the model has saved\n");
     printf("  claw session <new|list|show|rm>\n");
     printf("  claw config show             list settings\n");
@@ -279,6 +325,9 @@ static int cmd_repl(void)
             } else if (strcmp(line, "/stats") == 0) {
                 cmd_stats();
                 printf("\n");
+            } else if (strcmp(line, "/memory") == 0) {
+                claw_memory_list();
+                printf("\n");
             } else if (strcmp(line, "/skills") == 0) {
                 cmd_skills(0, NULL);
                 printf("\n");
@@ -293,6 +342,7 @@ static int cmd_repl(void)
                 printf("  /new      start a new session\n");
                 printf("  /show     print this session\n");
                 printf("  /skills   list saved skills\n");
+                printf("  /memory   list what claw remembers\n");
                 printf("  /stats    status and memory\n");
                 printf("  /verbose  toggle transport statistics\n");
                 printf("  exit      leave\n\n");
@@ -521,6 +571,7 @@ static int cmd_stats(void)
             printf("  session    %s (%d turns)\n", sid, claw_session_count());
         }
     }
+    printf("  memory     %d stored\n", claw_memory_count());
     printf("  heap       free %u, min %u, largest %u\n",
            (unsigned)heap_caps_get_free_size(caps),
            (unsigned)heap_caps_get_minimum_free_size(caps),
@@ -566,6 +617,9 @@ int cmd_claw(int argc, char **argv)
             return 0;
         }
         return set_backend(rest_argv[0]);
+    }
+    if (strcmp(sub, "memory") == 0) {
+        return cmd_memory(rest_argc, rest_argv);
     }
     if (strcmp(sub, "skills") == 0) {
         return cmd_skills(rest_argc, rest_argv);

@@ -36,7 +36,26 @@ static cJSON *body(const cJSON *messages)
     cJSON_AddStringToObject(root, "model", model);
     cJSON_AddNumberToObject(root, "max_tokens", claw_config_get_int("max_tokens", 2048));
     cJSON_AddBoolToObject(root, "stream", true);
-    cJSON_AddItemToObject(root, "messages", cJSON_Duplicate(messages, true));
+
+    /* Anthropic takes the system prompt as a top-level field and rejects
+     * role:"system" inside messages, so hoist it out on the way past. */
+    cJSON *out = cJSON_CreateArray();
+    const cJSON *m = NULL;
+    cJSON_ArrayForEach(m, messages) {
+        cJSON *role = cJSON_GetObjectItemCaseSensitive(m, "role");
+        if (cJSON_IsString(role) && strcmp(role->valuestring, "system") == 0) {
+            cJSON *content = cJSON_GetObjectItemCaseSensitive(m, "content");
+            if (cJSON_IsString(content) && !cJSON_GetObjectItem(root, "system")) {
+                cJSON_AddStringToObject(root, "system", content->valuestring);
+            }
+            continue;
+        }
+        cJSON *copy = cJSON_Duplicate(m, true);
+        if (copy) {
+            cJSON_AddItemToArray(out, copy);
+        }
+    }
+    cJSON_AddItemToObject(root, "messages", out);
     return root;
 }
 
