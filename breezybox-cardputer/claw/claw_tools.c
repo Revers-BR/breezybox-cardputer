@@ -530,20 +530,20 @@ static bool i2c_scan_run(const cJSON *args, char *out, size_t out_len)
     gpio_reset_pin((gpio_num_t)scl);
 
     if (found == 0) {
-        /* Be directive, not just informative. Left to itself a model reads
-         * "no devices" as "nothing is connected" and gives up, when the actual
-         * situation is that this class of device cannot be detected at all. */
+        /* State the general limitation rather than guessing at the user's
+         * hardware: a scan proves nothing about devices that never drive the
+         * bus, and reading "no devices" as "nothing connected" is the wrong
+         * conclusion for a whole class of accessory. What is actually attached
+         * belongs in memory, not in firmware. */
         snprintf(out, out_len,
-                 "No I2C devices on G%d/G%d.\n\n"
-                 "Important: addressable LED units (NeoPixel, WS2812, M5Stack "
-                 "Puzzle Unit / LED matrix) are NOT I2C devices and can never "
-                 "be detected by scanning -- they receive data on G2 and send "
-                 "nothing back. A scan finding nothing does not mean nothing is "
-                 "connected.\n\n"
-                 "If the user has said they have an LED unit, do not scan again. "
-                 "Drive it directly: call lua_api for the breezy.led reference, "
-                 "then run_lua. Start dim (brightness 5-10) because these units "
-                 "can draw more current than the board can supply.",
+                 "No I2C devices responded on G%d/G%d.\n\n"
+                 "This only rules out I2C. Output-only devices -- addressable "
+                 "LEDs, some displays, servos, relays -- receive on a pin and "
+                 "never reply, so a scan cannot detect them and finding nothing "
+                 "does not mean nothing is connected.\n\n"
+                 "If you know what is attached, drive it directly: call lua_api "
+                 "for the relevant module and use run_lua. Otherwise ask the "
+                 "user what it is.",
                  sda, scl);
         return true;
     }
@@ -831,7 +831,7 @@ static const claw_tool_t k_tools[] = {
     { "memory_save", "Remember something for future conversations. Use when you learn a durable fact about the user, their hardware or their project.", memory_save_schema, memory_save_run },
     { "memory_read", "Read the full text of something in your memory index.", memory_read_schema, memory_read_run },
     { "memory_forget", "Delete something from memory. Asks the user first.", memory_forget_schema, memory_forget_run },
-    { "i2c_scan",    "Scan the Grove port for I2C devices. Only use this for I2C accessories (sensors). Do NOT use it on an addressable LED/NeoPixel unit: it is not an I2C device, and scanning drives garbage into its data line, which can brown out the board. Use run_lua with breezy.led for those.", i2c_scan_schema, i2c_scan_run },
+    { "i2c_scan",    "Scan the Grove port for I2C devices. Detects I2C peripherals only; devices that do not drive the bus (LEDs, servos, relays, some displays) cannot be found this way and should be driven directly with run_lua.", i2c_scan_schema, i2c_scan_run },
     { "lua_api",     "Get the breezy Lua API reference for this device. Call with no arguments to list the available sections, then again with module= for the one you need (e.g. 'led' for addressable LEDs, 'hardware' for the Grove pinout). Always check here before writing a Lua script.", lua_api_schema, lua_api_run },
     { "run_lua",     "Run a Lua script on the device, optionally saving it as a reusable skill. Use this to control hardware or compute something the other tools cannot.", run_lua_schema, run_lua_run },
     { "device_info", "Report board, memory and storage information.",  device_info_schema, device_info_run },
