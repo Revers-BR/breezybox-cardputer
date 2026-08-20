@@ -124,9 +124,11 @@ breezy.gfx.mode("text")
 
 ## breezy.https
 
-- `breezy.https.request{url=, method=, headers=, body=, on_chunk=} -> status, bytes`
+- `breezy.https.request{url=, method=, headers=, body=, body_file=, on_chunk=, on_status=, timeout_ms=} -> status, bytes[, body]  -- or just a URL string; without on_chunk the body is returned`
 
 ```lua
+local st, n, body = breezy.https.request("https://wttr.in/?format=3")
+print(st, body)
 local status, bytes = breezy.https.request{
   url = "https://example.com/",
   method = "GET",
@@ -221,6 +223,7 @@ breezy.led.close()
 ```lua
 print(breezy.network.is_connected())
 local res = breezy.network.http_get("http://example.com/")
+print(res.status, #res.body)
 ```
 
 ## breezy.pin

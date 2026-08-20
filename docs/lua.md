@@ -114,6 +114,8 @@ print(breezy.uart.read(h1, 64, 100))
 breezy.uart.close(h1)
 print(breezy.json.encode({ name = "cardputer", pixels = 8 }))
 print(breezy.json.decode('{"name":"cardputer"}').name)
+local st, n, body = breezy.https.request("https://wttr.in/?format=3")
+print(st, body)
 local status, bytes = breezy.https.request{
   url = "https://example.com/",
   method = "GET",

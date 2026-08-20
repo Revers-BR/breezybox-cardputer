@@ -41,7 +41,7 @@ HINTS = {
     "storage.sd_mounted": "() -> boolean",
     "network.is_connected": "() -> boolean",
     "network.http_get":   "(url) -> {status=, body=}  -- http:// only",
-    "https.request":      "{url=, method=, headers=, body=, on_chunk=} -> status, bytes",
+    "https.request":      "{url=, method=, headers=, body=, body_file=, on_chunk=, on_status=, timeout_ms=} -> status, bytes[, body]  -- or just a URL string; without on_chunk the body is returned",
     "gfx.mode":           '("text"|"150p"|"vga13h")  -- pixel modes need a large contiguous framebuffer and can fail; use breezy.tui for text',
     "sound.tone":         "(hz, ms)",
     "i2c.scan":           "() -> table of addresses",
@@ -81,6 +81,7 @@ def collect_usage() -> dict[str, list[str]]:
 
     current = None      # module a multi-line call belongs to
     depth = 0           # unclosed brackets, so continuations stay attached
+    last_key = None     # module the previous line belonged to
 
     for raw in block.group(1).splitlines():
         line = raw.rstrip()
@@ -102,9 +103,14 @@ def collect_usage() -> dict[str, list[str]]:
         key = m.group(1) if m else (
             "lib" if re.search(r"breezy\.\w+\s*[({]", stripped) else None)
         if not key:
+            # A bare print() right after a breezy call is showing its result,
+            # so keep it with that module rather than dropping it.
+            if last_key and stripped.startswith("print("):
+                usage[last_key].append(line)
             continue
 
         usage.setdefault(key, []).append(line)
+        last_key = key
         depth = line.count("(") + line.count("{") - line.count(")") - line.count("}")
         if depth > 0:
             current = key

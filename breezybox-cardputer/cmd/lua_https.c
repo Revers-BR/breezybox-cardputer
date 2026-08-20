@@ -41,8 +41,13 @@
 #define HTTPS_IO_CHUNK      512    /* body write / response read granularity */
 #define HTTPS_DEFAULT_TMO   120000
 
+#define HTTPS_BODY_MAX 4096
+
 typedef struct {
     lua_State *L;
+    char      *body;           /* collected when there is no on_chunk */
+    size_t     body_len;
+    size_t     body_cap;
     int        on_chunk_ref;   /* LUA_NOREF when no callback was supplied */
     int        aborted;        /* callback returned false */
     int        lua_error;      /* callback raised */
@@ -68,6 +73,19 @@ static int https_emit(https_stream_ctx_t *ctx, const char *data, int len)
     ctx->total += (size_t)len;
 
     if (ctx->on_chunk_ref == LUA_NOREF) {
+        /*
+         * No callback: collect a bounded amount so a plain request still
+         * returns something useful. Streaming exists for responses too large
+         * to hold, but most requests are small, and silently discarding the
+         * body is a poor default.
+         */
+        if (ctx->body) {
+            size_t space = ctx->body_cap - 1 - ctx->body_len;
+            size_t copy = ((size_t)len < space) ? (size_t)len : space;
+            memcpy(ctx->body + ctx->body_len, data, copy);
+            ctx->body_len += copy;
+            ctx->body[ctx->body_len] = '\0';
+        }
         return 0;
     }
 
@@ -122,9 +140,72 @@ static void https_apply_headers(lua_State *L, int tbl_idx, esp_http_client_handl
  *   -> status, bytes        on success
  *   -> nil, "message"       on failure
  */
+/* Every key this accepts. A request table is written from memory, so a plausible
+ * wrong name -- on_body, callback, headers_table -- is easy to reach for, and
+ * silently ignoring it produces a request that connects and returns nothing.
+ * Better to say which key is wrong and what exists. */
+static const char *const k_https_keys[] = {
+    "url", "method", "headers", "body", "body_file",
+    "on_chunk", "on_status", "ca_file", "ca_pem", "timeout_ms",
+};
+
+static int https_check_keys(lua_State *L, int idx, char *bad, size_t bad_len)
+{
+    lua_pushnil(L);
+    while (lua_next(L, idx) != 0) {
+        if (lua_type(L, -2) == LUA_TSTRING) {
+            const char *key = lua_tostring(L, -2);
+            bool known = false;
+            for (size_t i = 0; i < sizeof(k_https_keys) / sizeof(k_https_keys[0]); i++) {
+                if (strcmp(key, k_https_keys[i]) == 0) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known) {
+                snprintf(bad, bad_len, "%s", key);
+                lua_pop(L, 2);       /* value and key */
+                return 1;
+            }
+        }
+        lua_pop(L, 1);
+    }
+    return 0;
+}
+
 static int l_https_request(lua_State *L)
 {
-    luaL_checktype(L, 1, LUA_TTABLE);
+    /*
+     * The one-argument-table form is easy to mistake for request(url), and
+     * luaL_checktype's "table expected, got string" does not show what the
+     * right call looks like. Accept the simple case rather than reject it: a
+     * bare URL is unambiguous, and a GET is what anyone means by it.
+     */
+    if (lua_isstring(L, 1)) {
+        const char *url = lua_tostring(L, 1);
+        lua_newtable(L);
+        lua_pushstring(L, url);
+        lua_setfield(L, -2, "url");
+        lua_replace(L, 1);
+        lua_settop(L, 1);
+    }
+
+    if (!lua_istable(L, 1)) {
+        luaL_error(L, "breezy.https.request takes a table, e.g. "
+                      "breezy.https.request{ url = \"https://example.com\", "
+                      "on_chunk = function(s) breezy.write(s) end } "
+                      "-- or just a URL string");
+    }
+
+    {
+        char bad[48];
+        if (https_check_keys(L, 1, bad, sizeof(bad))) {
+            luaL_error(L, "breezy.https.request: unknown option '%s'. "
+                          "Accepted: url, method, headers, body, body_file, "
+                          "on_chunk, on_status, ca_file, ca_pem, timeout_ms",
+                       bad);
+        }
+    }
 
     lua_getfield(L, 1, "url");
     const char *url = luaL_checkstring(L, -1);
@@ -201,6 +282,8 @@ static int l_https_request(lua_State *L)
         ctx.on_chunk_ref = luaL_ref(L, LUA_REGISTRYINDEX);   /* pops it */
     } else {
         lua_pop(L, 1);
+        ctx.body = calloc(1, HTTPS_BODY_MAX);
+        ctx.body_cap = HTTPS_BODY_MAX;
     }
 
     int on_status_ref = LUA_NOREF;
@@ -277,6 +360,8 @@ static int l_https_request(lua_State *L)
     if (!client) {
         if (body_fp) fclose(body_fp);
         free(ca_buf);
+        free(ctx.body);
+        ctx.body = NULL;
         luaL_unref(L, LUA_REGISTRYINDEX, ctx.on_chunk_ref);
         luaL_unref(L, LUA_REGISTRYINDEX, on_status_ref);
         lua_pushnil(L);
@@ -432,10 +517,13 @@ done:
     luaL_unref(L, LUA_REGISTRYINDEX, ctx.on_chunk_ref);
     luaL_unref(L, LUA_REGISTRYINDEX, on_status_ref);
 
+    /* ctx.body is freed on each path below, after it has been read. */
     if (ctx.lua_error) {
+        free(ctx.body);
         return lua_error(L);   /* re-raise the callback's error */
     }
     if (err_msg) {
+        free(ctx.body);
         lua_pushnil(L);
         lua_pushstring(L, err_msg);
         return 2;
@@ -443,6 +531,11 @@ done:
 
     lua_pushinteger(L, status);
     lua_pushinteger(L, (lua_Integer)ctx.total);
+    if (ctx.body) {
+        lua_pushlstring(L, ctx.body, ctx.body_len);
+        free(ctx.body);
+        return 3;
+    }
     return 2;
 }
 
