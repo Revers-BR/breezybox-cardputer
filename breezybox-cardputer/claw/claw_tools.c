@@ -621,12 +621,47 @@ static bool heading_matches(const char *line, const char *want)
     if (strncmp(h, "breezy.", 7) == 0) {
         h += 7;
     }
+    /* The index prints sections as "breezy.network", so that is what gets asked
+     * for. Normalise both sides rather than expecting the bare name. */
+    if (strncmp(want, "breezy.", 7) == 0) {
+        want += 7;
+    }
     size_t n = strlen(want);
     if (strncasecmp(h, want, n) != 0) {
         return false;
     }
     char after = h[n];
     return after == '\0' || after == '\n' || after == '\r' || after == ' ';
+}
+
+/* Append the available module names, read from the reference. */
+static size_t append_module_list(char *out, size_t out_len, size_t used)
+{
+    char *doc = lua_api_slurp(NULL);
+    if (!doc) {
+        return used;
+    }
+    used += (size_t)snprintf(out + used, out_len - used, "Available: ");
+    bool first = true;
+    for (char *line = doc; line && *line; ) {
+        char *nl = strchr(line, '\n');
+        if (strncmp(line, "## breezy.", 10) == 0) {
+            size_t n = nl ? (size_t)(nl - line - 10) : strlen(line + 10);
+            int w = snprintf(out + used, out_len - used, "%s%.*s",
+                             first ? "" : ", ", (int)n, line + 10);
+            if (w > 0 && (size_t)w < out_len - used) {
+                used += (size_t)w;
+                first = false;
+            }
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+    free(doc);
+    used += (size_t)snprintf(out + used, out_len - used,
+                             ".\nFile operations are top-level: breezy.read_file, "
+                             "write_file, listdir, exists, mkdir, remove, rename, "
+                             "stat.\n");
+    return used;
 }
 
 static bool lua_api_run(const cJSON *args, char *out, size_t out_len)
@@ -689,9 +724,10 @@ static bool lua_api_run(const cJSON *args, char *out, size_t out_len)
     }
 
     if (!start) {
-        snprintf(out, out_len,
-                 "No section '%s'. Call lua_api with no arguments to list what "
-                 "is available.", want);
+        size_t n = (size_t)snprintf(out, out_len, "No section '%s'.\n", want);
+        n = append_module_list(out, out_len, n);
+        snprintf(out + n, out_len - n,
+                 "Also: Core, Grove port, Power, Pins in use, Notes.\n");
         free(doc);
         return true;
     }
@@ -795,6 +831,24 @@ static bool run_lua_run(const cJSON *args, char *out, size_t out_len)
         snprintf(out, out_len, "(script produced no output)");
         used = strlen(out);
     }
+
+    /*
+     * A guessed module name fails as "attempt to index a nil value (field
+     * 'fs')", which says what broke but not what exists. Naming the real
+     * modules turns a dead end into a correction.
+     */
+    const char *nilfield = strstr(out, "index a nil value (field '");
+    if (nilfield && used + 200 < out_len) {
+        const char *name = nilfield + strlen("index a nil value (field '");
+        const char *end = strchr(name, '\'');
+        if (end && (size_t)(end - name) < 32) {
+            used += (size_t)snprintf(out + used, out_len - used,
+                                     "\n\nThere is no breezy.%.*s. ",
+                                     (int)(end - name), name);
+            used = append_module_list(out, out_len, used);
+        }
+    }
+
     if (saved_path[0]) {
         snprintf(out + used, out_len - used, "\n[saved as %s]", saved_path);
     }

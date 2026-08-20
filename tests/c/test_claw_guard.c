@@ -52,6 +52,30 @@ static bool path_allowed(const char *path)
     return strncmp(path, "/root", 5) == 0 || strncmp(path, "/sd", 3) == 0;
 }
 
+/* Section lookup for lua_api. The index prints sections as "breezy.network",
+ * so that is what gets asked for -- matching only the bare name meant every
+ * qualified request missed, and the model read that as a transient failure and
+ * retried. */
+static bool heading_matches(const char *line, const char *want)
+{
+    if (strncmp(line, "## ", 3) != 0) {
+        return false;
+    }
+    const char *h = line + 3;
+    if (strncmp(h, "breezy.", 7) == 0) {
+        h += 7;
+    }
+    if (strncmp(want, "breezy.", 7) == 0) {
+        want += 7;
+    }
+    size_t n = strlen(want);
+    if (strncasecmp(h, want, n) != 0) {
+        return false;
+    }
+    char after = h[n];
+    return after == '\0' || after == '\n' || after == '\r' || after == ' ';
+}
+
 /* --------------------------------------------------------------- harness -- */
 
 static int failures = 0;
@@ -102,6 +126,17 @@ int main(void)
     expect("other root rejected",   path_allowed("/dev/null"),       false);
     expect("empty rejected",        path_allowed(""),                false);
     expect("NULL rejected",         path_allowed(NULL),              false);
+
+    printf("\nlua_api section lookup\n");
+    expect("bare name",              heading_matches("## breezy.network\n", "network"),        true);
+    expect("qualified, as indexed",  heading_matches("## breezy.network\n", "breezy.network"), true);
+    expect("case insensitive",       heading_matches("## breezy.network\n", "NETWORK"),        true);
+    expect("non-breezy section",     heading_matches("## Core\n", "core"),                     true);
+    expect("multi-word section",     heading_matches("## Grove port\n", "grove"),              true);
+    expect("wrong module",           heading_matches("## breezy.i2c\n", "i2s"),                false);
+    expect("no partial match",       heading_matches("## breezy.network\n", "net"),            false);
+    expect("qualified wrong module", heading_matches("## breezy.i2s\n", "breezy.i2c"),         false);
+    expect("not a heading",          heading_matches("- a list item\n", "network"),            false);
 
     printf("\n");
     if (failures == 0) {
