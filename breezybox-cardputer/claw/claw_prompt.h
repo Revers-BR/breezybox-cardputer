@@ -16,7 +16,7 @@
 
 #include <stddef.h>
 
-#define CLAW_PROMPT_MAX 1536
+#define CLAW_PROMPT_MAX 2560
 
 /* Write the system prompt. Returns the length written. */
 size_t claw_prompt_build(char *out, size_t out_len);

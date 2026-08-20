@@ -146,7 +146,9 @@ Things worth knowing before changing it:
   missing section lists the real ones, an unknown shell command lists the real
   ones, a nil module names the real ones. Several wasted rounds came from tools
   that reported failure without direction.
-- `claw_prompt.c` describes the device on every request. Anything the model
+- `claw_prompt.c` describes the device on every request, and lists the shell
+  commands by enumerating the live registry rather than repeating them, so the
+  prompt matches the build. Anything the model
   reliably gets wrong belongs there rather than in a tool's error path, which
   only fires after a turn has already been spent.
 - Only the memory *index* is injected into requests (capped at

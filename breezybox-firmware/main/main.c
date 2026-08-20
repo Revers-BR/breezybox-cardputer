@@ -50,7 +50,6 @@ extern int cmd_vi_builtin_main(int argc, char **argv);
 extern int cmd_wget_builtin_main(int argc, char **argv);
 extern int cmd_gzip_builtin_main(int argc, char **argv);
 extern int cmd_gunzip_builtin_main(int argc, char **argv);
-extern int cmd_clawprobe_main(int argc, char **argv); /* TEMP: Phase -1 spike */
 #if defined(BREEZY_BOARD_CARDPUTER)
 #if !defined(BREEZY_SLIM)
 extern int ssh_app_mode_run(ssh_session session);
@@ -79,7 +78,6 @@ static const esp_console_cmd_t s_app_cmds[] = {
     { .command = "gzip", .help = "Compress file", .hint = "<file> [outfile]", .func = &cmd_gzip_builtin_main },
     { .command = "gunzip", .help = "Decompress gzip file", .hint = "<file.gz> [outfile]", .func = &cmd_gunzip_builtin_main },
     { .command = "testgfx", .help = "Graphics demo", .hint = "[-t seconds] [-v]", .func = &cmd_testgfx },
-    { .command = "clawprobe", .help = "TEMP: TLS/heap feasibility probe", .hint = "[-u url] [-k key]", .func = &cmd_clawprobe_main },
 };
 
 static const breezybox_help_entry_t s_app_help[] = {
@@ -102,7 +100,6 @@ static const breezybox_help_entry_t s_app_help[] = {
     { "gzip", "gzip <file> [outfile]", "Compress a file.", NULL, "gzip log.txt\ngzip log.txt log.txt.gz" },
     { "gunzip", "gunzip <file.gz> [outfile]", "Decompress a gzip file.", NULL, "gunzip log.txt.gz\ngunzip log.txt.gz log.txt" },
     { "testgfx", "testgfx [-t seconds] [-v]", "Run the graphics demo.", "-t seconds  run duration\n-v          verbose output", "testgfx\ntestgfx -t 5\ntestgfx -v" },
-    { "clawprobe", "clawprobe [-u url] [-k key]", "Temporary ESP-Claw feasibility probe: real TLS POST with a streamed response, reporting internal-heap low-water mark. A 401 is a PASS.", "-u url  endpoint to POST to\n-k key  API key to send", "clawprobe\nclawprobe -k sk-ant-..." },
 };
 
 static bool pager_print_wrapped(breezy_pager_t *pager, const char *text, int indent)

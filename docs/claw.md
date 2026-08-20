@@ -242,6 +242,11 @@ ESP32-S3 and not Linux, that `run_shell` is an embedded shell with no bash or
 curl, that Lua is sandboxed with no `io` or `os`, where files live, and that
 answers are read on a 40-column screen.
 
+The available shell commands are listed in it too, read from the live command
+registry rather than written down -- so the list cannot go stale, and reflects
+the build actually running (the slim profile has no Bluetooth commands, and says
+so). About 100 tokens to save the model discovering them by trial.
+
 It exists because without it the model assumes a Linux box -- reaching for
 `curl`, shell scripts and a `breezy.fs` module that does not exist, then
 reasoning from the failure and usually concluding a capability is missing when

@@ -3,7 +3,6 @@ set(BOARD_SRCS
     "my_console_io.c"
     "cmd_app_compat.c"
     "cmd_testgfx.c"
-    "cmd_clawprobe.c"
     "cmd_plasma_builtin.c"
     "cmd_termbench_builtin.c"
     "cmd_vi_builtin.c"
@@ -44,10 +43,6 @@ idf_component_register(
         driver
         fatfs
         esp_lcd
-        esp_http_client
-        esp-tls
-        mbedtls
-        esp_netif
         breezybox-cardputer
         breezy_bt
         breezy_rgb_lcd
