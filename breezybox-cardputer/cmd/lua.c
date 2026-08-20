@@ -24,6 +24,9 @@
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
 
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
 #include <limits.h>
 
 #include "cJSON.h"
@@ -3927,6 +3930,153 @@ static int l_breezy_heap(lua_State *L)
     return 3;
 }
 
+/* ------------------------------------------------- filesystem, beyond files --
+ *
+ * read_file/write_file/listdir/exists covered reading and writing, but nothing
+ * could create a directory, delete anything or ask how big a file was -- so a
+ * script had to shell out to breezy.exec("mkdir ...") and parse text. These are
+ * the operations an app needs before it can keep its own data tidy.
+ */
+static int l_breezy_mkdir(lua_State *L)
+{
+    const char *path = luaL_checkstring(L, 1);
+    char resolved[BREEZYBOX_MAX_PATH * 2];
+    if (!breezybox_resolve_path(path, resolved, sizeof(resolved))) {
+        return luaL_error(L, "path too long: %s", path);
+    }
+    struct stat st;
+    if (stat(resolved, &st) == 0 && S_ISDIR(st.st_mode)) {
+        lua_pushboolean(L, 1);           /* already there is success */
+        return 1;
+    }
+    if (mkdir(resolved, 0777) != 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "cannot create %s", resolved);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int l_breezy_remove(lua_State *L)
+{
+    const char *path = luaL_checkstring(L, 1);
+    char resolved[BREEZYBOX_MAX_PATH * 2];
+    if (!breezybox_resolve_path(path, resolved, sizeof(resolved))) {
+        return luaL_error(L, "path too long: %s", path);
+    }
+    struct stat st;
+    if (stat(resolved, &st) != 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "no such path: %s", resolved);
+        return 2;
+    }
+    int rc = S_ISDIR(st.st_mode) ? rmdir(resolved) : remove(resolved);
+    if (rc != 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "cannot remove %s%s", resolved,
+                        S_ISDIR(st.st_mode) ? " (directory must be empty)" : "");
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int l_breezy_rename(lua_State *L)
+{
+    const char *from = luaL_checkstring(L, 1);
+    const char *to = luaL_checkstring(L, 2);
+    char rfrom[BREEZYBOX_MAX_PATH * 2];
+    char rto[BREEZYBOX_MAX_PATH * 2];
+    if (!breezybox_resolve_path(from, rfrom, sizeof(rfrom)) ||
+        !breezybox_resolve_path(to, rto, sizeof(rto))) {
+        return luaL_error(L, "path too long");
+    }
+    if (rename(rfrom, rto) != 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "cannot rename %s to %s", rfrom, rto);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/* -> { size = bytes, dir = boolean, mtime = unix seconds }, or nil */
+static int l_breezy_stat(lua_State *L)
+{
+    const char *path = luaL_checkstring(L, 1);
+    char resolved[BREEZYBOX_MAX_PATH * 2];
+    if (!breezybox_resolve_path(path, resolved, sizeof(resolved))) {
+        return luaL_error(L, "path too long: %s", path);
+    }
+    struct stat st;
+    if (stat(resolved, &st) != 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_newtable(L);
+    lua_pushinteger(L, (lua_Integer)st.st_size);
+    lua_setfield(L, -2, "size");
+    lua_pushboolean(L, S_ISDIR(st.st_mode));
+    lua_setfield(L, -2, "dir");
+    lua_pushinteger(L, (lua_Integer)st.st_mtime);
+    lua_setfield(L, -2, "mtime");
+    return 1;
+}
+
+/* ------------------------------------------------------------------- time --
+ *
+ * now_ms() is uptime, which cannot date anything. The system clock exists (the
+ * `date` command sets it) but was not reachable from Lua, so a script could not
+ * timestamp a log line or show today's date.
+ */
+static int l_time_now(lua_State *L)
+{
+    lua_pushinteger(L, (lua_Integer)time(NULL));
+    return 1;
+}
+
+/* date([format[, when]]) -> string, strftime formats */
+static int l_time_date(lua_State *L)
+{
+    const char *fmt = luaL_optstring(L, 1, "%Y-%m-%d %H:%M:%S");
+    time_t when = (time_t)luaL_optinteger(L, 2, (lua_Integer)time(NULL));
+    struct tm tm;
+    localtime_r(&when, &tm);
+    char buf[128];
+    size_t n = strftime(buf, sizeof(buf), fmt, &tm);
+    lua_pushlstring(L, buf, n);
+    return 1;
+}
+
+static int l_time_set(lua_State *L)
+{
+    time_t when = (time_t)luaL_checkinteger(L, 1);
+    struct timeval tv = { .tv_sec = when, .tv_usec = 0 };
+    if (settimeofday(&tv, NULL) != 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, "cannot set the clock");
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/* True once the clock looks like a real date rather than 1970. */
+static int l_time_is_set(lua_State *L)
+{
+    lua_pushboolean(L, time(NULL) > 1600000000);
+    return 1;
+}
+
+static const luaL_Reg s_breezy_time_lib[] = {
+    { "now",    l_time_now },
+    { "date",   l_time_date },
+    { "set",    l_time_set },
+    { "is_set", l_time_is_set },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_breezy_lib[] = {
     { "write", l_breezy_write },
     { "heap", l_breezy_heap },
@@ -3938,6 +4088,10 @@ static const luaL_Reg s_breezy_lib[] = {
     { "read_file", l_breezy_read_file },
     { "write_file", l_breezy_write_file },
     { "exists", l_breezy_exists },
+    { "mkdir", l_breezy_mkdir },
+    { "remove", l_breezy_remove },
+    { "rename", l_breezy_rename },
+    { "stat", l_breezy_stat },
     { "sleep", l_breezy_sleep },
     { "sleep_ms", l_breezy_sleep_ms },
     { "now_ms", l_breezy_now_ms },
@@ -4176,6 +4330,8 @@ static int lua_push_breezy_named_module(lua_State *L, const char *name)
         luaL_newlib(L, s_breezy_storage_lib);
     } else if (strcmp(name, "network") == 0) {
         luaL_newlib(L, s_breezy_network_lib);
+    } else if (strcmp(name, "time") == 0) {
+        luaL_newlib(L, s_breezy_time_lib);
     } else if (strcmp(name, "json") == 0) {
         luaL_newlib(L, s_breezy_json_lib);
     } else if (strcmp(name, "led") == 0) {

@@ -58,6 +58,13 @@ for i, name in ipairs(breezy.listdir("/root")) do print(name) end
 print(breezy.read_file("/root/init.sh"))
 breezy.write_file("/root/test.lua", "print('hi')\n")
 print(breezy.exists("/root/test.lua"))
+breezy.mkdir("/sd/myapp")
+print(breezy.stat("/root/test.lua").size)
+breezy.rename("/root/test.lua", "/root/test2.lua")
+breezy.remove("/root/test2.lua")
+print(breezy.time.date("%Y-%m-%d"))
+print(breezy.time.now())
+print(breezy.time.is_set())
 breezy.sleep(0.5)
 breezy.sleep_ms(16)
 breezy.now_ms()
@@ -139,6 +146,10 @@ The current Lua surface is still intentionally small, but it now includes:
 - `breezy.gfx` for graphics mode, images/sprites, blits, and backlight control
 - `breezy.sound` for built-in speaker playback, tones, note helpers, and mic capture
 - `breezy.uart` for external UART/serial devices on ports `1` and `2`
+- `breezy.mkdir`, `breezy.remove`, `breezy.rename` and `breezy.stat` for
+  managing files and directories, not just reading and writing them
+- `breezy.time` for the wall clock: `now()`, `date()`, `set()`, `is_set()`
+  (`breezy.now_ms()` is uptime, which cannot date anything)
 - `breezy.json` for encoding and decoding JSON at C speed
 - `breezy.https` for TLS requests, with streamed request bodies and responses
 - `breezy.led` for addressable LED strips (WS2812/NeoPixel) driven over RMT

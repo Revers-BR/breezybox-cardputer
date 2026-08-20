@@ -51,6 +51,14 @@ HINTS = {
     "led.show":           "()  -- nothing reaches the strip until this is called",
     "led.brightness":     "([pct]) -> pct",
     "led.close":          "()  -- clears the strip first; it latches otherwise",
+    "mkdir":              "(path) -> true  -- succeeds if it already exists",
+    "remove":             "(path) -> true  -- file, or empty directory",
+    "rename":             "(from, to) -> true",
+    "stat":               "(path) -> {size=, dir=, mtime=} or nil",
+    "time.now":           "() -> unix seconds",
+    "time.date":          '([format[, when]]) -> string, strftime formats',
+    "time.set":           "(unix_seconds)",
+    "time.is_set":        "() -> boolean  -- false when the clock was never set",
 }
 
 

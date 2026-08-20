@@ -24,6 +24,10 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.read_file(path) -> string`
 - `breezy.write_file(path, text[, append])`
 - `breezy.exists(path) -> boolean`
+- `breezy.mkdir(path) -> true  -- succeeds if it already exists`
+- `breezy.remove(path) -> true  -- file, or empty directory`
+- `breezy.rename(from, to) -> true`
+- `breezy.stat(path) -> {size=, dir=, mtime=} or nil`
 - `breezy.sleep()`
 - `breezy.sleep_ms()`
 - `breezy.now_ms()`
@@ -38,6 +42,10 @@ for i, name in ipairs(breezy.listdir("/root")) do print(name) end
 print(breezy.read_file("/root/init.sh"))
 breezy.write_file("/root/test.lua", "print('hi')\n")
 print(breezy.exists("/root/test.lua"))
+breezy.mkdir("/sd/myapp")
+print(breezy.stat("/root/test.lua").size)
+breezy.rename("/root/test.lua", "/root/test2.lua")
+breezy.remove("/root/test2.lua")
 breezy.sleep(0.5)
 breezy.sleep_ms(16)
 breezy.now_ms()
@@ -267,6 +275,19 @@ breezy.spi.close()
 
 ```lua
 print(breezy.storage.sd_mounted())
+```
+
+## breezy.time
+
+- `breezy.time.now() -> unix seconds`
+- `breezy.time.date([format[, when]]) -> string, strftime formats`
+- `breezy.time.set(unix_seconds)`
+- `breezy.time.is_set() -> boolean  -- false when the clock was never set`
+
+```lua
+print(breezy.time.date("%Y-%m-%d"))
+print(breezy.time.now())
+print(breezy.time.is_set())
 ```
 
 ## breezy.tui
