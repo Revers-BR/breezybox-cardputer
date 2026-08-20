@@ -836,6 +836,24 @@ static bool run_lua_run(const cJSON *args, char *out, size_t out_len)
     }
 
     /*
+     * Say plainly when the script did not run.
+     *
+     * The script is written to disk before it runs, so a broken one is still
+     * saved -- which is deliberate, but leads to "saved successfully, though
+     * there was a minor error" summaries of something that does not work. A
+     * Lua error always starts with "lua: ", so it is unambiguous.
+     */
+    bool failed = strncmp(out, "lua:", 4) == 0 || strstr(out, "\nlua:") != NULL;
+    if (failed && used + 160 < out_len) {
+        memmove(out + 56, out, used + 1);
+        memcpy(out, "SCRIPT FAILED - it was saved, but it does not work yet:\n", 56);
+        used += 56;
+        used += (size_t)snprintf(out + used, out_len - used,
+                                 "\nFix the error and run it again. Do not tell "
+                                 "the user it worked.\n");
+    }
+
+    /*
      * A guessed module name fails as "attempt to index a nil value (field
      * 'fs')", which says what broke but not what exists. Naming the real
      * modules turns a dead end into a correction.

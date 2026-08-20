@@ -475,7 +475,9 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     /* Signature of the previous tool call. A model that gets an unusable result
      * tends to retry the identical call; catching that turns a silent eight
      * round burn into one clear message. */
-    char last_sig[256] = {0};
+    char     last_name[64] = {0};
+    uint32_t last_hash = 0;
+    bool     have_last = false;
 
     /* Heap, not stack: this carries an 8 KB tool-argument buffer, which the
      * console task's 16 KB stack cannot spare. */
@@ -532,10 +534,20 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
             }
         }
 
-        /* name + arguments identify a call well enough to spot a repeat. */
-        char sig[256];
-        snprintf(sig, sizeof(sig), "%s(%.180s)", sctx->acc.name, sctx->acc.json);
-        if (last_sig[0] && strcmp(sig, last_sig) == 0) {
+        /*
+         * Hash the whole argument string, not a prefix of it.
+         *
+         * run_lua arguments open with a long `code` string, so comparing the
+         * first 180 bytes made two different scripts that share their opening
+         * lines look identical -- and a model correcting its own mistake got
+         * stopped for repeating itself. FNV-1a over the full arguments.
+         */
+        uint32_t hash = 2166136261u;
+        for (const char *c = sctx->acc.json; *c; c++) {
+            hash = (hash ^ (uint8_t)*c) * 16777619u;
+        }
+        if (have_last && hash == last_hash &&
+            strcmp(sctx->acc.name, last_name) == 0) {
             printf("\n[stopped: %s called twice with the same arguments]\n",
                    sctx->acc.name);
             snprintf(res->error, sizeof(res->error),
@@ -545,7 +557,9 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
             rc = 1;
             break;
         }
-        snprintf(last_sig, sizeof(last_sig), "%s", sig);
+        snprintf(last_name, sizeof(last_name), "%s", sctx->acc.name);
+        last_hash = hash;
+        have_last = true;
 
         printf("\n[tool: %s]\n", sctx->acc.name);
         claw_tools_run(sctx->acc.name, call_args, tool_out, CLAW_TOOL_RESULT_MAX);
