@@ -189,18 +189,25 @@ static void suggest_breezy_field(lua_State *L, const char *msg)
         return;
     }
 
-    printf("  there is no breezy.%.*s; available:", (int)(close - open), open);
-    int shown = 0;
+    printf("  there is no breezy.%.*s\n", (int)(close - open), open);
+
+    printf("  functions:");
     lua_pushnil(L);
     while (lua_next(L, -2) != 0) {
-        if (lua_type(L, -2) == LUA_TSTRING) {
+        if (lua_type(L, -2) == LUA_TSTRING && lua_isfunction(L, -1)) {
             printf(" %s", lua_tostring(L, -2));
-            shown++;
         }
         lua_pop(L, 1);
     }
-    if (shown == 0) {
-        printf(" (none)");
+    printf("\n");
+
+    /* Listed from the table above, not by iterating: these are built on
+     * demand, so the ones nobody has touched yet are invisible. */
+    size_t nmods = 0;
+    const char *const *mods = breezy_module_names(&nmods);
+    printf("  modules:");
+    for (size_t i = 0; i < nmods; i++) {
+        printf(" %s", mods[i]);
     }
     printf("\n");
     lua_pop(L, 3);
@@ -4438,6 +4445,28 @@ static int lua_reg_count(const luaL_Reg *reg)
     return count;
 }
 
+/*
+ * The sub-modules `breezy` builds on demand.
+ *
+ * They are created by the __index metamethod, so iterating the breezy table
+ * only ever shows the ones a script has already touched -- which made the
+ * "available:" hint on a nil-field error list a near-random subset and left the
+ * reader guessing at exactly the moment they needed the full set.
+ */
+static const char *const k_breezy_modules[] = {
+    "keyboard", "pin", "adc", "battery", "i2c", "i2s", "spi", "storage",
+    "network", "json", "https", "led", "time", "sound", "config", "tui",
+    "gfx", "uart",
+};
+
+const char *const *breezy_module_names(size_t *count)
+{
+    if (count) {
+        *count = sizeof(k_breezy_modules) / sizeof(k_breezy_modules[0]);
+    }
+    return k_breezy_modules;
+}
+
 static int lua_push_breezy_named_module(lua_State *L, const char *name)
 {
     if (!name) {
@@ -4491,8 +4520,34 @@ static int lua_push_breezy_named_module(lua_State *L, const char *name)
     return 1;
 }
 
+#ifndef NDEBUG
+/* The list above is maintained by hand, and a stale entry would put a module in
+ * the help text that does not exist -- the same class of bug this fixes. Check
+ * once that every declared name actually resolves. */
+static void breezy_assert_modules(lua_State *L)
+{
+    static bool checked;
+    if (checked) {
+        return;
+    }
+    checked = true;
+    size_t n = 0;
+    const char *const *mods = breezy_module_names(&n);
+    for (size_t i = 0; i < n; i++) {
+        lua_push_breezy_named_module(L, mods[i]);
+        if (lua_isnil(L, -1)) {
+            ESP_LOGE("breezy", "declared module '%s' does not resolve", mods[i]);
+        }
+        lua_pop(L, 1);
+    }
+}
+#endif
+
 static int l_breezy_index(lua_State *L)
 {
+#ifndef NDEBUG
+    breezy_assert_modules(L);
+#endif
     const char *name = luaL_checkstring(L, 2);
     lua_push_breezy_named_module(L, name);
     if (!lua_isnil(L, -1)) {

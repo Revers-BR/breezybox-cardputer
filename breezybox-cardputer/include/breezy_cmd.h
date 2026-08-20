@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include "esp_console.h"
 
 // Command handlers - called by esp_console
@@ -57,6 +59,10 @@ const struct luaL_Reg *breezy_lua_https_lib(void);
 
 /* breezy.led sub-table (cmd/lua_led.c): addressable LED strips over RMT. */
 const struct luaL_Reg *breezy_lua_led_lib(void);
+
+/* Sub-modules of `breezy`, which are created on demand and so cannot be found
+ * by iterating the table. */
+const char *const *breezy_module_names(size_t *count);
 
 #if !defined(BREEZY_SLIM)
 int cmd_ssh(int argc, char **argv);

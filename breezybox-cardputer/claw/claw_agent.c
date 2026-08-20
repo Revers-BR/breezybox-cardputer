@@ -475,6 +475,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     /* Signature of the previous tool call. A model that gets an unusable result
      * tends to retry the identical call; catching that turns a silent eight
      * round burn into one clear message. */
+    char     last_error[160] = {0};
     char     last_name[64] = {0};
     uint32_t last_hash = 0;
     bool     have_last = false;
@@ -561,8 +562,25 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         last_hash = hash;
         have_last = true;
 
-        printf("\n[tool: %s]\n", sctx->acc.name);
-        claw_tools_run(sctx->acc.name, call_args, tool_out, CLAW_TOOL_RESULT_MAX);
+        printf("\n[tool: %s  (%d/%d)]\n", sctx->acc.name,
+               round + 1, CLAW_MAX_TOOL_ROUNDS);
+        bool tool_ok = claw_tools_run(sctx->acc.name, call_args, tool_out,
+                                      CLAW_TOOL_RESULT_MAX);
+        /*
+         * Show the first line of a failure even without -v. Several rounds of
+         * "[tool: run_lua]" with nothing between them is indistinguishable from
+         * a hang, when what is actually happening is the model retrying against
+         * an error the user cannot see.
+         */
+        if (!tool_ok || strncmp(tool_out, "SCRIPT FAILED", 13) == 0) {
+            const char *nl = strchr(tool_out, '\n');
+            int n = nl ? (int)(nl - tool_out) : (int)strlen(tool_out);
+            if (n > 100) {
+                n = 100;
+            }
+            printf("  -> %.*s\n", n, tool_out);
+            snprintf(last_error, sizeof(last_error), "%.*s", n, tool_out);
+        }
         if (verbose) {
             printf("[result: %.120s%s]\n", tool_out,
                    strlen(tool_out) > 120 ? "..." : "");
@@ -575,7 +593,23 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         cJSON_Delete(call_args);
 
         if (round == CLAW_MAX_TOOL_ROUNDS - 1) {
-            printf("\n[stopped: reached the %d tool-call limit]\n", CLAW_MAX_TOOL_ROUNDS);
+            /*
+             * Ending here means the model never produced an answer, so say why
+             * rather than leaving "(no text in response)". The last failure is
+             * almost always the reason it kept trying.
+             */
+            printf("\n[stopped: reached the %d tool-call limit]\n",
+                   CLAW_MAX_TOOL_ROUNDS);
+            if (last_error[0]) {
+                snprintf(res->error, sizeof(res->error),
+                         "gave up after %d tool calls; last failure: %.100s",
+                         CLAW_MAX_TOOL_ROUNDS, last_error);
+            } else {
+                snprintf(res->error, sizeof(res->error),
+                         "gave up after %d tool calls without reaching an answer",
+                         CLAW_MAX_TOOL_ROUNDS);
+            }
+            rc = 1;
         }
     }
 
