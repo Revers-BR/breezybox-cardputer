@@ -104,6 +104,19 @@ local h1 = breezy.uart.open(1, 115200, 1, 2)
 breezy.uart.write(h1, "hello\\r\\n")
 print(breezy.uart.read(h1, 64, 100))
 breezy.uart.close(h1)
+print(breezy.json.encode({ name = "cardputer", pixels = 8 }))
+print(breezy.json.decode('{"name":"cardputer"}').name)
+local status, bytes = breezy.https.request{
+  url = "https://example.com/",
+  method = "GET",
+  headers = { ["accept"] = "text/plain" },
+  on_chunk = function(chunk) breezy.write(chunk) end,
+}
+breezy.led.open(2, 8, { brightness = 25 })
+breezy.led.fill(0, 40, 0)
+breezy.led.set(1, 60, 0, 0)
+breezy.led.show()
+breezy.led.close()
 ```
 
 
@@ -126,6 +139,9 @@ The current Lua surface is still intentionally small, but it now includes:
 - `breezy.gfx` for graphics mode, images/sprites, blits, and backlight control
 - `breezy.sound` for built-in speaker playback, tones, note helpers, and mic capture
 - `breezy.uart` for external UART/serial devices on ports `1` and `2`
+- `breezy.json` for encoding and decoding JSON at C speed
+- `breezy.https` for TLS requests, with streamed request bodies and responses
+- `breezy.led` for addressable LED strips (WS2812/NeoPixel) driven over RMT
 
 Notes:
 

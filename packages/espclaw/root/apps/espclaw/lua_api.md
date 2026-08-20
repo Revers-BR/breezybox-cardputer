@@ -116,6 +116,15 @@ breezy.gfx.mode("text")
 
 - `breezy.https.request{url=, method=, headers=, body=, on_chunk=} -> status, bytes`
 
+```lua
+local status, bytes = breezy.https.request{
+  url = "https://example.com/",
+  method = "GET",
+  headers = { ["accept"] = "text/plain" },
+  on_chunk = function(chunk) breezy.write(chunk) end,
+}
+```
+
 ## breezy.i2c
 
 - `breezy.i2c.open()`
@@ -151,6 +160,11 @@ breezy.i2s.close("tx")
 - `breezy.json.encode(value) -> string`
 - `breezy.json.decode(string) -> value`
 
+```lua
+print(breezy.json.encode({ name = "cardputer", pixels = 8 }))
+print(breezy.json.decode('{"name":"cardputer"}').name)
+```
+
 ## breezy.keyboard
 
 - `breezy.keyboard.read_event()`
@@ -172,6 +186,14 @@ print(breezy.keyboard.mods().shift)
 - `breezy.led.show()  -- nothing reaches the strip until this is called`
 - `breezy.led.brightness([pct]) -> pct`
 - `breezy.led.close()  -- clears the strip first; it latches otherwise`
+
+```lua
+breezy.led.open(2, 8, { brightness = 25 })
+breezy.led.fill(0, 40, 0)
+breezy.led.set(1, 60, 0, 0)
+breezy.led.show()
+breezy.led.close()
+```
 
 ## breezy.network
 

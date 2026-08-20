@@ -70,15 +70,37 @@ def collect_usage() -> dict[str, list[str]]:
     if not block:
         return usage
 
-    for line in block.group(1).splitlines():
-        line = line.strip()
-        if not line or line.startswith("--"):
+    current = None      # module a multi-line call belongs to
+    depth = 0           # unclosed brackets, so continuations stay attached
+
+    for raw in block.group(1).splitlines():
+        line = raw.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("--"):
             continue
-        # breezy.<module>.<fn>(  -> that module; breezy.<fn>( -> core
-        m = re.search(r"breezy\.(\w+)\.\w+\s*\(", line)
-        key = m.group(1) if m else ("lib" if re.search(r"breezy\.\w+\s*\(", line) else None)
-        if key:
-            usage.setdefault(key, []).append(line)
+
+        if depth > 0 and current:
+            # Continuation of a call that spans lines.
+            usage[current].append(line)
+            depth += line.count("(") + line.count("{") - line.count(")") - line.count("}")
+            if depth <= 0:
+                depth, current = 0, None
+            continue
+
+        # Lua allows both f(...) and f{...}, and the table form is common for
+        # option arguments -- breezy.https.request{...} among them.
+        m = re.search(r"breezy\.(\w+)\.\w+\s*[({]", stripped)
+        key = m.group(1) if m else (
+            "lib" if re.search(r"breezy\.\w+\s*[({]", stripped) else None)
+        if not key:
+            continue
+
+        usage.setdefault(key, []).append(line)
+        depth = line.count("(") + line.count("{") - line.count(")") - line.count("}")
+        if depth > 0:
+            current = key
+        else:
+            depth = 0
     return usage
 
 
