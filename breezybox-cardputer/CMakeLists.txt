@@ -56,6 +56,7 @@ idf_component_register(
         "claw/claw_config.c"
         "claw/claw_memory.c"
         "claw/claw_models.c"
+        "claw/claw_prompt.c"
         "claw/claw_session.c"
         "claw/claw_sse.c"
         "claw/claw_tools.c"

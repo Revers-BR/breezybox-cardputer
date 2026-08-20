@@ -141,6 +141,14 @@ Things worth knowing before changing it:
   native shape into the same array, so **every `build_body` must pass native
   turns through untouched**. Getting this wrong makes the model repeat a tool
   call forever; there is a guard for exactly that.
+- Tool failures must say what would have worked. The model cannot consult docs
+  it does not have, so an error message *is* the documentation at that moment: a
+  missing section lists the real ones, an unknown shell command lists the real
+  ones, a nil module names the real ones. Several wasted rounds came from tools
+  that reported failure without direction.
+- `claw_prompt.c` describes the device on every request. Anything the model
+  reliably gets wrong belongs there rather than in a tool's error path, which
+  only fires after a turn has already been spent.
 - Only the memory *index* is injected into requests (capped at
   `CLAW_MEMORY_INJECT_MAX`); bodies are fetched with `memory_read`. Injecting
   everything would spend the context budget on usually-irrelevant facts.

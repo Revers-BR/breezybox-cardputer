@@ -2,6 +2,7 @@
 #include "claw_backend.h"
 #include "claw_config.h"
 #include "claw_memory.h"
+#include "claw_prompt.h"
 #include "claw_session.h"
 #include "claw_sse.h"
 #include "claw_tools.h"
@@ -406,9 +407,13 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     }
     res->turns = cJSON_GetArraySize(messages);
 
-    /* Prepend what the device remembers, as a system turn. Only the index goes
-     * in -- bodies are fetched with memory_read when the model decides one is
-     * relevant. Each backend puts a system turn where it belongs. */
+    /*
+     * Prepend two system turns, memory first so the device description ends up
+     * ahead of it: what this machine is, then what it remembers. Only the
+     * memory index goes in -- bodies are fetched with memory_read when the
+     * model decides one is relevant. Each backend puts a system turn where its
+     * API expects it.
+     */
     {
         char *mem = malloc(CLAW_MEMORY_INJECT_MAX);
         if (mem) {
@@ -417,13 +422,28 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
                 if (sys) {
                     cJSON_AddStringToObject(sys, "role", "system");
                     cJSON_AddStringToObject(sys, "content", mem);
-                    /* Insert ahead of the conversation. */
                     if (!cJSON_InsertItemInArray(messages, 0, sys)) {
                         cJSON_Delete(sys);
                     }
                 }
             }
             free(mem);
+        }
+    }
+    {
+        char *prompt = malloc(CLAW_PROMPT_MAX);
+        if (prompt) {
+            if (claw_prompt_build(prompt, CLAW_PROMPT_MAX) > 0) {
+                cJSON *sys = cJSON_CreateObject();
+                if (sys) {
+                    cJSON_AddStringToObject(sys, "role", "system");
+                    cJSON_AddStringToObject(sys, "content", prompt);
+                    if (!cJSON_InsertItemInArray(messages, 0, sys)) {
+                        cJSON_Delete(sys);
+                    }
+                }
+            }
+            free(prompt);
         }
     }
 

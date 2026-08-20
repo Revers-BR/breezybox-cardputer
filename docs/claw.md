@@ -235,6 +235,25 @@ This is a hardware limit, not something firmware can work around. `i2c_scan`
 releases the pins when it finishes so nothing is left sinking current, but it
 cannot conjure supply headroom.
 
+## What the model is told
+
+Every request carries a short system prompt describing the device: that it is an
+ESP32-S3 and not Linux, that `run_shell` is an embedded shell with no bash or
+curl, that Lua is sandboxed with no `io` or `os`, where files live, and that
+answers are read on a 40-column screen.
+
+It exists because without it the model assumes a Linux box -- reaching for
+`curl`, shell scripts and a `breezy.fs` module that does not exist, then
+reasoning from the failure and usually concluding a capability is missing when
+it is only spelled differently here. Roughly 300 tokens per request to avoid
+several wasted round trips.
+
+Add your own instructions in `/sd/claw/system.md` and they are appended:
+
+```sh
+echo "Prefer metric units. I am building a weather station." > /sd/claw/system.md
+```
+
 ## Memory
 
 Sessions are what was said; memory is what the device should still know next
