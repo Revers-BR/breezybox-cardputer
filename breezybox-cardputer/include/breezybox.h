@@ -50,6 +50,7 @@ esp_err_t breezybox_start_stdio(size_t stack_size, uint32_t priority);
  */
 esp_err_t breezybox_register_commands(void);
 const esp_console_cmd_t *breezybox_get_core_commands(size_t *count);
+const esp_console_cmd_t *breezybox_get_extra_commands(size_t *count);
 void breezybox_set_extra_commands(const esp_console_cmd_t *cmds, size_t count);
 void breezybox_set_extra_help_entries(const breezybox_help_entry_t *entries, size_t count);
 const esp_console_cmd_t *breezybox_find_command(const char *cmd);

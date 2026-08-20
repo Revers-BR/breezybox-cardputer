@@ -7,6 +7,7 @@
 #include "driver/i2c.h"
 #include "freertos/FreeRTOS.h"
 #include "breezy_vfs.h"
+#include "breezybox.h"
 
 #include "esp_heap_caps.h"
 
@@ -288,7 +289,9 @@ static cJSON *run_shell_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
     add_prop(props, "command", "string",
-             "Shell command to run in the BreezyBox shell, e.g. 'ls /sd', 'df', 'wifi status'");
+             "A single BreezyBox shell command, e.g. 'ls /sd', 'df', 'wifi status', "
+             "'help'. Not a Unix shell: no bash, no pipes to external tools, no "
+             "scripts. Run 'help' first if unsure what exists.");
     static const char *req[] = { "command" };
     return schema_of(req, 1, props);
 }
@@ -883,7 +886,7 @@ static const claw_tool_t k_tools[] = {
     { "read_file",   "Read a text file from the device.",              read_file_schema,   read_file_run   },
     { "write_file",  "Write or append text to a file on the device.",  write_file_schema,  write_file_run  },
     { "list_dir",    "List the contents of a directory.",              list_dir_schema,    list_dir_run    },
-    { "run_shell",   "Run a BreezyBox shell command and return its output.", run_shell_schema, run_shell_run },
+    { "run_shell",   "Run a command in the BreezyBox shell and return its output. This is an embedded shell, not Unix: there is no bash, no shebang scripts and no package manager. Run 'help' to list the available commands. For network requests use run_lua with breezy.https instead.", run_shell_schema, run_shell_run },
     { "memory_save", "Remember something for future conversations. Use when you learn a durable fact about the user, their hardware or their project.", memory_save_schema, memory_save_run },
     { "memory_read", "Read the full text of something in your memory index.", memory_read_schema, memory_read_run },
     { "memory_forget", "Delete something from memory. Asks the user first.", memory_forget_schema, memory_forget_run },

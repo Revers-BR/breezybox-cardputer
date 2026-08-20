@@ -667,6 +667,14 @@ const esp_console_cmd_t *breezybox_get_core_commands(size_t *count)
     return s_breezybox_cmds;
 }
 
+const esp_console_cmd_t *breezybox_get_extra_commands(size_t *count)
+{
+    if (count) {
+        *count = s_extra_cmd_count;
+    }
+    return s_extra_cmds;
+}
+
 void breezybox_set_extra_commands(const esp_console_cmd_t *cmds, size_t count)
 {
     s_extra_cmds = cmds;
