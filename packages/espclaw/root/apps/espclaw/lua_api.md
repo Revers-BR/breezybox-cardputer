@@ -31,9 +31,29 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.term_size() -> cols, rows`
 - `breezy.readkey(timeout_ms) -> char or nil`
 
+```lua
+print(breezy.cwd())
+breezy.cd("/root")
+for i, name in ipairs(breezy.listdir("/root")) do print(name) end
+print(breezy.read_file("/root/init.sh"))
+breezy.write_file("/root/test.lua", "print('hi')\n")
+print(breezy.exists("/root/test.lua"))
+breezy.sleep(0.5)
+breezy.sleep_ms(16)
+breezy.now_ms()
+breezy.clear()
+print(breezy.term_size())
+print(breezy.readkey(0))
+print(breezy.exec("ls /root"))
+```
+
 ## breezy.adc
 
 - `breezy.adc.read()`
+
+```lua
+print(breezy.adc.read(1))
+```
 
 ## breezy.battery
 
@@ -41,12 +61,21 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.battery.read_pct() -> 0..100`
 - `breezy.battery.read_level() -> 0..4`
 
+```lua
+print(breezy.battery.read_pct())
+```
+
 ## breezy.config
 
 - `breezy.config.load()`
 - `breezy.config.save()`
 - `breezy.config.get()`
 - `breezy.config.set()`
+
+```lua
+breezy.config.set("theme", "amber")
+print(breezy.config.get("theme"))
+```
 
 ## breezy.gfx
 
@@ -69,6 +98,20 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.gfx.palette()`
 - `breezy.gfx.wait_vsync()`
 
+```lua
+breezy.gfx.mode("150p")
+breezy.gfx.font("term16")
+local w, h = breezy.gfx.size()
+breezy.gfx.clear(0)
+breezy.gfx.text(8, 8, "hello", 15)
+breezy.gfx.rect(10, 10, 40, 30, 12)
+breezy.gfx.rectfill(20, 20, 20, 12, 4)
+local img = breezy.gfx.new_image(8, 8, 0)
+breezy.gfx.blit(img, 60, 30, 0)
+breezy.gfx.backlight(220)
+breezy.gfx.mode("text")
+```
+
 ## breezy.https
 
 - `breezy.https.request{url=, method=, headers=, body=, on_chunk=} -> status, bytes`
@@ -83,6 +126,12 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.i2c.read_reg()`
 - `breezy.i2c.scan() -> table of addresses`
 
+```lua
+breezy.i2c.open(1, 2, { freq = 400000 })
+print(#breezy.i2c.scan())
+breezy.i2c.close()
+```
+
 ## breezy.i2s
 
 - `breezy.i2s.open_tx()`
@@ -91,6 +140,11 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.i2s.write()`
 - `breezy.i2s.read()`
 - `breezy.i2s.state()`
+
+```lua
+breezy.i2s.open_tx(10, 11, 12, { sample_rate = 16000, bits = 16, channels = 1 })
+breezy.i2s.close("tx")
+```
 
 ## breezy.json
 
@@ -104,6 +158,10 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.keyboard.flush()`
 - `breezy.keyboard.is_down()`
 - `breezy.keyboard.mods()`
+
+```lua
+print(breezy.keyboard.mods().shift)
+```
 
 ## breezy.led
 
@@ -128,11 +186,21 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.network.http_get(url) -> {status=, body=}  -- http:// only`
 - `breezy.network.http_post()`
 
+```lua
+print(breezy.network.is_connected())
+local res = breezy.network.http_get("http://example.com/")
+```
+
 ## breezy.pin
 
 - `breezy.pin.mode(gpio, "in"|"out")`
 - `breezy.pin.read()`
 - `breezy.pin.write()`
+
+```lua
+breezy.pin.mode(13, "out")
+breezy.pin.write(13, 1)
+```
 
 ## breezy.sound
 
@@ -149,6 +217,11 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.sound.mic_close()`
 - `breezy.sound.beep()`
 
+```lua
+breezy.sound.tone(880, 120)
+breezy.sound.play_notes("C4:4 E4:4 G4:4 C5:8")
+```
+
 ## breezy.spi
 
 - `breezy.spi.open()`
@@ -158,11 +231,21 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.spi.write()`
 - `breezy.spi.read()`
 
+```lua
+breezy.spi.open(3, 4, 5, 6, { mode = 0, delay_us = 1 })
+print(#breezy.spi.transfer(string.char(0x9F)))
+breezy.spi.close()
+```
+
 ## breezy.storage
 
 - `breezy.storage.sd_mounted() -> boolean`
 - `breezy.storage.mounts()`
 - `breezy.storage.info()`
+
+```lua
+print(breezy.storage.sd_mounted())
+```
 
 ## breezy.tui
 
@@ -174,6 +257,11 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.tui.cursor()`
 - `breezy.tui.box()`
 
+```lua
+breezy.tui.box(1, 1, 40, 16, "demo")
+breezy.tui.status("ready")
+```
+
 ## breezy.uart
 
 - `breezy.uart.open()`
@@ -183,36 +271,12 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.uart.readline()`
 - `breezy.uart.flush()`
 
-## Examples
-
-Runnable scripts on the device under `/root/lua/`. Read one with
-read_file before writing similar code -- they show working usage,
-not just names. Run with `lua /root/lua/<name>`.
-
-- `/root/lua/args.lua` -- core calls
-- `/root/lua/battery_demo.lua` -- breezy.battery
-- `/root/lua/config_demo.lua` -- breezy.config
-- `/root/lua/graphics_demo.lua` -- breezy.gfx
-- `/root/lua/graphics_text_demo.lua` -- breezy.gfx
-- `/root/lua/hardware_info.lua` -- breezy.adc, breezy.network, breezy.pin, breezy.sound
-- `/root/lua/hello.lua` -- core calls
-- `/root/lua/http_demo.lua` -- breezy.network
-- `/root/lua/https_test.lua` -- breezy.https, breezy.json, breezy.network
-- `/root/lua/i2c_scan.lua` -- breezy.i2c
-- `/root/lua/i2s_demo.lua` -- breezy.i2s
-- `/root/lua/keyboard_demo.lua` -- breezy.keyboard, breezy.tui
-- `/root/lua/list_root.lua` -- core calls
-- `/root/lua/simple_game.lua` -- breezy.gfx, breezy.keyboard
-- `/root/lua/sound_demo.lua` -- breezy.sound
-- `/root/lua/spi_demo.lua` -- breezy.spi
-- `/root/lua/sprite_demo.lua` -- breezy.gfx
-- `/root/lua/sysinfo.lua` -- core calls
-- `/root/lua/template.lua` -- breezy.adc, breezy.battery, breezy.config, breezy.gfx
-- `/root/lua/tui_demo.lua` -- breezy.tui
-- `/root/lua/uart_demo.lua` -- breezy.uart
-- `/root/lua/web_get_example.lua` -- breezy.network
-- `/root/lua/web_post_example.lua` -- breezy.network
-- `/root/lua/write_demo.lua` -- core calls
+```lua
+local h1 = breezy.uart.open(1, 115200, 1, 2)
+breezy.uart.write(h1, "hello\\r\\n")
+print(breezy.uart.read(h1, 64, 100))
+breezy.uart.close(h1)
+```
 
 ## Grove port
 

@@ -125,7 +125,10 @@ Where things live:
 - `packages/espclaw/root/apps/espclaw/` data staged into the firmware image:
   `ca/gts_root_r1.pem`, `models.json`, `lua_api.md`
 - `tools/gen_lua_api.py` regenerates `lua_api.md` from the bindings in
-  `cmd/lua.c`. Run it after changing any Lua binding.
+  `cmd/lua.c` and `cmd/lua_led.c`, and folds in the usage block from
+  `docs/lua.md`. Run it after changing any Lua binding or that block. The
+  reference is generated rather than written so it cannot drift; a stale
+  reference is worse than none, because the model believes it.
 - `tests/c/` host tests for the C core; `sh tests/c/run.sh`
 
 Things worth knowing before changing it:

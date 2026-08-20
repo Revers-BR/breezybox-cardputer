@@ -15,7 +15,7 @@ from pathlib import Path
 
 SRCS = [Path("breezybox-cardputer/cmd/lua.c"),
         Path("breezybox-cardputer/cmd/lua_led.c")]
-EXAMPLES_DIR = Path("lua-apps")
+USAGE_DOC = Path("docs/lua.md")
 OUT = Path("packages/espclaw/root/apps/espclaw/lua_api.md")
 
 # Registered outside the s_breezy_* tables.
@@ -54,6 +54,34 @@ HINTS = {
 }
 
 
+def collect_usage() -> dict[str, list[str]]:
+    """Usage lines per module, taken from the example block in docs/lua.md.
+
+    That block is curated and already maintained alongside the bindings, so
+    sourcing from it keeps a single copy: a hand-written second set of snippets
+    here would drift the moment an API changed.
+    """
+    usage: dict[str, list[str]] = {}
+    if not USAGE_DOC.exists():
+        return usage
+
+    text = USAGE_DOC.read_text()
+    block = re.search(r"```lua\n(.*?)```", text, re.S)
+    if not block:
+        return usage
+
+    for line in block.group(1).splitlines():
+        line = line.strip()
+        if not line or line.startswith("--"):
+            continue
+        # breezy.<module>.<fn>(  -> that module; breezy.<fn>( -> core
+        m = re.search(r"breezy\.(\w+)\.\w+\s*\(", line)
+        key = m.group(1) if m else ("lib" if re.search(r"breezy\.\w+\s*\(", line) else None)
+        if key:
+            usage.setdefault(key, []).append(line)
+    return usage
+
+
 def main() -> int:
     missing = [p for p in SRCS if not p.exists()]
     if missing:
@@ -68,6 +96,7 @@ def main() -> int:
     mods.update(EXTRA)
 
     all_modules = set(mods) - {"lib"}
+    usage = collect_usage()
 
     if "lib" not in mods:
         print("error: could not find the core breezy table", file=sys.stderr)
@@ -96,6 +125,9 @@ def main() -> int:
         hint = HINTS.get(fn, "")
         lines.append(f"- `breezy.{fn}{hint}`" if hint else f"- `breezy.{fn}()`")
 
+    if usage.get("lib"):
+        lines += ["", "```lua"] + usage["lib"] + ["```"]
+
     for mod in sorted(mods):
         lines += ["", f"## breezy.{mod}", ""]
         for fn in mods[mod]:
@@ -103,26 +135,8 @@ def main() -> int:
             hint = HINTS.get(key, "")
             lines.append(f"- `breezy.{mod}.{fn}{hint}`" if hint
                          else f"- `breezy.{mod}.{fn}()`")
-
-    # Worked examples ship to /root/lua. Index them by the capability each one
-    # demonstrates: a runnable example is a better answer to "how do I use
-    # breezy.gfx" than a function list, and read_file can fetch it.
-    if EXAMPLES_DIR.is_dir():
-        lines += [
-            "",
-            "## Examples",
-            "",
-            "Runnable scripts on the device under `/root/lua/`. Read one with",
-            "read_file before writing similar code -- they show working usage,",
-            "not just names. Run with `lua /root/lua/<name>`.",
-            "",
-        ]
-        for f in sorted(EXAMPLES_DIR.glob("*.lua")):
-            used = sorted(set(re.findall(r"breezy\.(\w+)", f.read_text())))
-            # Keep module-level names; drop bare core calls, which every script uses.
-            used = [m for m in used if m in all_modules]
-            shown = ", ".join(f"breezy.{m}" for m in used[:4]) if used else "core calls"
-            lines.append(f"- `/root/lua/{f.name}` -- {shown}")
+        if usage.get(mod):
+            lines += ["", "```lua"] + usage[mod] + ["```"]
 
     lines += [
         "",
