@@ -37,6 +37,11 @@ static const char k_device_prompt[] =
     "- Hardware lives on the Grove port, pins G1 and G2. Accessories draw from "
     "a shared 5V rail, so warn before switching on anything bright or motorised.\n"
     "\n"
+    "- For anything text-shaped use breezy.tui and print(): the console is "
+    "already 40x16 characters. breezy.gfx switches to a pixel mode needing a "
+    "large contiguous framebuffer, which often cannot be allocated while the "
+    "agent is running -- reserve it for actual graphics.\n"
+    "\n"
     "Answers are read on a 40-column screen: keep them short. Prefer doing the "
     "thing over describing it, and when something fails, read the error before "
     "concluding a capability is missing.\n";

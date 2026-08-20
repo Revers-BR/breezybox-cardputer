@@ -4656,12 +4656,33 @@ static void set_arg_table(lua_State *L, int argc, char **argv, int start_index)
     lua_setglobal(L, "arg");
 }
 
+/*
+ * Put the display back the way we found it.
+ *
+ * A script that enters graphics mode -- or dies partway through trying -- has
+ * no console to return to, and a dimmed backlight looks like the device has
+ * shut down. Nothing else restores it, so the console is simply gone until a
+ * reboot. Scripts should not have to get their own cleanup right for the
+ * machine to stay usable.
+ */
+static void restore_display(int saved_backlight)
+{
+    if (rgb_display_get_mode() != SM_TEXT) {
+        rgb_display_set_mode(SM_TEXT);
+    }
+    if (rgb_display_get_backlight() < 16 && saved_backlight >= 16) {
+        rgb_display_set_backlight(saved_backlight);
+    }
+}
+
 static int run_lua_chunk(lua_State *L, const char *chunk, const char *name, bool print_results)
 {
+    const int saved_backlight = rgb_display_get_backlight();
     int top = lua_gettop(L);
     int rc = luaL_loadbuffer(L, chunk, strlen(chunk), name);
     if (rc != LUA_OK) {
         print_lua_error(L, "lua");
+        restore_display(saved_backlight);
         return 1;
     }
 
@@ -4669,8 +4690,11 @@ static int run_lua_chunk(lua_State *L, const char *chunk, const char *name, bool
     if (rc != LUA_OK) {
         print_lua_error(L, "lua");
         lua_settop(L, top);
+        restore_display(saved_backlight);
         return 1;
     }
+
+    restore_display(saved_backlight);
 
     if (print_results) {
         int results = lua_gettop(L) - top;
