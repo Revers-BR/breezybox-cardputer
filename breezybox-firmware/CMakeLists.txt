@@ -87,7 +87,20 @@ if(EXISTS ${ESPCLAW_PKG}/models.json)
     # and that copy is what users edit.
     file(COPY ${ESPCLAW_PKG}/models.json DESTINATION ${BREEZY_FS_IMAGE_DIR}/apps/espclaw)
 endif()
-message(STATUS "espclaw: staged CA, model catalogue and Lua API into fs_image")
+# The bundled Lua examples, which docs/lua.md has always said live in
+# /root/lua. They did not actually ship until now -- and the agent uses them as
+# worked examples, since a runnable script answers "how do I use breezy.gfx"
+# better than a list of function names.
+set(BREEZY_LUA_APPS ${CMAKE_CURRENT_LIST_DIR}/../lua-apps)
+if(EXISTS ${BREEZY_LUA_APPS})
+    file(GLOB BREEZY_LUA_APP_FILES ${BREEZY_LUA_APPS}/*.lua ${BREEZY_LUA_APPS}/*.txt)
+    file(COPY ${BREEZY_LUA_APP_FILES} DESTINATION ${BREEZY_FS_IMAGE_DIR}/lua)
+    list(LENGTH BREEZY_LUA_APP_FILES BREEZY_LUA_APP_COUNT)
+    message(STATUS "espclaw: staged CA, model catalogue, Lua API and "
+                   "${BREEZY_LUA_APP_COUNT} example scripts into fs_image")
+else()
+    message(STATUS "espclaw: staged CA, model catalogue and Lua API into fs_image")
+endif()
 
 littlefs_create_partition_image(spiffs ${BREEZY_FS_IMAGE_DIR} FLASH_IN_PROJECT)
 

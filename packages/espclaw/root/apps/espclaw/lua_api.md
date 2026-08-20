@@ -183,6 +183,37 @@ use `print()`, or `breezy.write()` to write without a newline.
 - `breezy.uart.readline()`
 - `breezy.uart.flush()`
 
+## Examples
+
+Runnable scripts on the device under `/root/lua/`. Read one with
+read_file before writing similar code -- they show working usage,
+not just names. Run with `lua /root/lua/<name>`.
+
+- `/root/lua/args.lua` -- core calls
+- `/root/lua/battery_demo.lua` -- breezy.battery
+- `/root/lua/config_demo.lua` -- breezy.config
+- `/root/lua/graphics_demo.lua` -- breezy.gfx
+- `/root/lua/graphics_text_demo.lua` -- breezy.gfx
+- `/root/lua/hardware_info.lua` -- breezy.adc, breezy.network, breezy.pin, breezy.sound
+- `/root/lua/hello.lua` -- core calls
+- `/root/lua/http_demo.lua` -- breezy.network
+- `/root/lua/https_test.lua` -- breezy.https, breezy.json, breezy.network
+- `/root/lua/i2c_scan.lua` -- breezy.i2c
+- `/root/lua/i2s_demo.lua` -- breezy.i2s
+- `/root/lua/keyboard_demo.lua` -- breezy.keyboard, breezy.tui
+- `/root/lua/list_root.lua` -- core calls
+- `/root/lua/simple_game.lua` -- breezy.gfx, breezy.keyboard
+- `/root/lua/sound_demo.lua` -- breezy.sound
+- `/root/lua/spi_demo.lua` -- breezy.spi
+- `/root/lua/sprite_demo.lua` -- breezy.gfx
+- `/root/lua/sysinfo.lua` -- core calls
+- `/root/lua/template.lua` -- breezy.adc, breezy.battery, breezy.config, breezy.gfx
+- `/root/lua/tui_demo.lua` -- breezy.tui
+- `/root/lua/uart_demo.lua` -- breezy.uart
+- `/root/lua/web_get_example.lua` -- breezy.network
+- `/root/lua/web_post_example.lua` -- breezy.network
+- `/root/lua/write_demo.lua` -- core calls
+
 ## Grove port
 
 The Grove connector is HY2.0-4P: GND, 5V, G2, G1.

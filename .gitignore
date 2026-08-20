@@ -29,3 +29,4 @@ breezybox-cardputer/apps/**/*-stripped
 # these are generated copies. Other fs_image content is still tracked.
 breezybox-firmware/fs_image/bin/claw
 breezybox-firmware/fs_image/apps/espclaw/
+breezybox-firmware/fs_image/lua/

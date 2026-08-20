@@ -106,7 +106,7 @@ enforced in the tool layer rather than trusted to the model.
 | `list_dir` | List a directory |
 | `run_shell` | Run any BreezyBox command and capture its output |
 | `run_lua` | Run a Lua script, optionally saving it as a skill |
-| `lua_api` | Look up the device's Lua API |
+| `lua_api` | Look up the device's Lua API, a section at a time |
 | `i2c_scan` | Probe the Grove port for I2C devices |
 | `memory_save` | Remember something for future conversations |
 | `memory_read` | Read a stored memory in full |
@@ -159,6 +159,20 @@ lua /sd/claw/skills/battery.lua
 
 `claw skills` lists them, `claw skills rm <name>` deletes one. Scripts are
 written to disk before they run, so one that crashes is still there to inspect.
+
+### Examples on the device
+
+The bundled demo scripts ship to `/root/lua/` and cover every capability --
+graphics, TUI, keyboard, sound, I2C, SPI, UART, HTTP, battery, config. The
+agent knows they are there: `lua_api` lists them with the capability each one
+demonstrates, and it can `read_file` one before writing similar code. A
+runnable script is a better answer to "how do I draw a sprite" than a list of
+function names.
+
+```sh
+lua /root/lua/sprite_demo.lua
+lua /root/lua/simple_game.lua
+```
 
 ## Hardware and the Grove port
 

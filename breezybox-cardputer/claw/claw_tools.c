@@ -728,9 +728,11 @@ static cJSON *run_lua_schema(void)
     cJSON *props = cJSON_CreateObject();
     add_prop(props, "code", "string",
              "Lua 5.4 source to run. Start with: local breezy = require(\"breezy\") "
-             "-- it is a module, not a global. Call the lua_api tool first if you "
-             "are unsure of a function name; there is no io or os library, so use "
-             "print() for output.");
+             "-- it is a module, not a global. There is no io or os library, so "
+             "use print() for output. If unsure of a function, call lua_api "
+             "(module= for one section); for worked examples, lua_api's Examples "
+             "section lists runnable scripts under /root/lua that read_file can "
+             "show you.");
     add_prop(props, "save_as", "string",
              "Optional name to keep this script as a reusable skill, e.g. "
              "'blink'. Saved to /sd/claw/skills/<name>.lua and runnable later "
