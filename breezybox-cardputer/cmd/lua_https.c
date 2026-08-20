@@ -292,8 +292,11 @@ static int l_https_request(lua_State *L)
     esp_http_client_set_method(client, m);
 
     https_apply_headers(L, 1, client);
+    /* Some hosts vary their response on User-Agent and send nothing useful
+     * without one. Only a default -- an explicit header above wins. */
+    esp_http_client_set_header(client, "User-Agent", "breezybox/claw");
 
-    int content_len = body_fp ? (int)body_file_len : (int)body_len;
+    const int content_len = body_fp ? (int)body_file_len : (int)body_len;
     const char *err_msg = NULL;
     int status = -1;
 
@@ -330,6 +333,54 @@ static int l_https_request(lua_State *L)
     }
     status = esp_http_client_get_status_code(client);
 
+    /*
+     * Follow redirects ourselves.
+     *
+     * esp_http_client only auto-follows inside esp_http_client_perform(); this
+     * streams with open/fetch_headers/read, where a 3xx simply arrives with an
+     * empty body. Plenty of ordinary URLs redirect -- http to https, a bare
+     * host to a path -- and "0 bytes, no error" is an unhelpful way to learn
+     * that.
+     *
+     * Only bodyless requests are retried: re-sending a body would mean
+     * rewinding it, and a redirected POST is ambiguous anyway. A redirect with
+     * a body is reported instead.
+     */
+    for (int hop = 0; hop < 4; hop++) {
+        if (status != 301 && status != 302 && status != 303 &&
+            status != 307 && status != 308) {
+            break;
+        }
+        char *location = NULL;
+        if (esp_http_client_get_header(client, "Location", &location) != ESP_OK ||
+            !location || !location[0]) {
+            break;                       /* nowhere to go; report the 3xx */
+        }
+        if (content_len > 0 && status != 303) {
+            err_msg = "redirected, but the request has a body; retry with the new URL";
+            goto done;
+        }
+
+        if (esp_http_client_set_url(client, location) != ESP_OK) {
+            err_msg = "cannot follow redirect";
+            goto done;
+        }
+        /* 303 means "fetch that with GET"; the others keep the method, and by
+         * here we know there is no body. */
+        esp_http_client_set_method(client, HTTP_METHOD_GET);
+        esp_http_client_close(client);
+
+        if (esp_http_client_open(client, 0) != ESP_OK) {
+            err_msg = "cannot open redirect target";
+            goto done;
+        }
+        if (esp_http_client_fetch_headers(client) < 0) {
+            err_msg = "fetch headers failed after redirect";
+            goto done;
+        }
+        status = esp_http_client_get_status_code(client);
+    }
+
     if (on_status_ref != LUA_NOREF) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, on_status_ref);
         lua_pushinteger(L, status);
@@ -344,19 +395,24 @@ static int l_https_request(lua_State *L)
         int n;
         int reads = 0;
         /*
-         * Check for completion *before* each read. A streamed (chunked,
-         * keep-alive) response can have its body fully delivered while the
-         * socket stays open, and entering another read then blocks for the
-         * whole timeout_ms -- which looks exactly like a hang just after the
-         * last token arrives.
+         * Read first, then test for completion.
+         *
+         * fetch_headers buffers whatever arrived alongside the headers, so a
+         * short response can already be complete before the first read -- and
+         * testing completion first meant never reading it at all, returning
+         * zero bytes with no error. Testing after a read still avoids the
+         * blocking read past end-of-body that this check was added for.
          */
-        while (!esp_http_client_is_complete_data_received(client)) {
+        while (true) {
             n = esp_http_client_read(client, rbuf, sizeof(rbuf));
             if (n <= 0) {
                 break;   /* connection closed, or error */
             }
             if (https_emit(&ctx, rbuf, n) != 0) {
                 break;   /* aborted by callback, or the callback raised */
+            }
+            if (esp_http_client_is_complete_data_received(client)) {
+                break;
             }
             /* Yield periodically so the idle task still runs: the task
              * watchdog here fires at 5 s and watches both idle tasks. */

@@ -305,7 +305,16 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
         /* Check completion before each read: a chunked keep-alive stream can be
          * fully delivered while the socket stays open, and another read would
          * then block for the whole timeout. */
-        while (!esp_http_client_is_complete_data_received(client)) {
+        /*
+         * Read first, then test for completion.
+         *
+         * fetch_headers buffers whatever arrived alongside the headers, so a
+         * short response can already be complete before the first read -- and
+         * testing completion first meant never reading it at all, returning
+         * zero bytes with no error. Testing after a read still avoids the
+         * blocking read past end-of-body that this check was added for.
+         */
+        while (true) {
             n = esp_http_client_read(client, buf, sizeof(buf));
             if (n <= 0) {
                 break;
@@ -320,6 +329,9 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
                 sctx->error_body_len += copy;
             } else {
                 claw_sse_feed(parser, buf, (size_t)n);
+            }
+            if (esp_http_client_is_complete_data_received(client)) {
+                break;
             }
             if ((++reads & 0x0F) == 0) {
                 vTaskDelay(1);   /* feed the idle task; TWDT fires at 5 s */
