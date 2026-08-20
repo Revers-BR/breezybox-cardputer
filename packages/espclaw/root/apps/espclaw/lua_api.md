@@ -15,6 +15,7 @@ use `print()`, or `breezy.write()` to write without a newline.
 ## Core
 
 - `breezy.write(text)  -- no trailing newline, unlike print()`
+- `breezy.log(...)  -- print with a timestamp and append to a log file`
 - `breezy.heap() -> free, min_free, largest`
 - `breezy.build()`
 - `breezy.exec(command) -> output string`
@@ -46,6 +47,7 @@ breezy.mkdir("/sd/myapp")
 print(breezy.stat("/root/test.lua").size)
 breezy.rename("/root/test.lua", "/root/test2.lua")
 breezy.remove("/root/test2.lua")
+breezy.log("weather", "72F", "rain")
 breezy.sleep(0.5)
 breezy.sleep_ms(16)
 breezy.now_ms()

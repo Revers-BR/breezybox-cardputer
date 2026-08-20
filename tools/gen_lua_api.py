@@ -33,6 +33,7 @@ HINTS = {
     "exec":               "(command) -> output string",
     "heap":               "() -> free, min_free, largest",
     "write":              "(text)  -- no trailing newline, unlike print()",
+    "log":                "(...)  -- print with a timestamp and append to a log file",
     "term_size":          "() -> cols, rows",
     "readkey":            "(timeout_ms) -> char or nil",
     "json.encode":        "(value) -> string",

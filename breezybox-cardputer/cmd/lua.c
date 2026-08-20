@@ -152,6 +152,60 @@ static lua_tcp_slot_t s_lua_tcp_slots[LUA_TCP_SLOT_COUNT];
 static lua_builtin_speaker_t s_lua_speaker = {0};
 static lua_mic_state_t s_lua_mic = {0};
 
+/*
+ * Suggest what exists when a script reaches for something that does not.
+ *
+ * "attempt to call a nil value (field 'log')" says what broke but not what
+ * would have worked, so both people and models respond by guessing again. The
+ * name is right there in the message; the module table can answer whether
+ * anything close to it exists.
+ */
+static void suggest_breezy_field(lua_State *L, const char *msg)
+{
+    const char *open = strstr(msg, "(field '");
+    if (!open) {
+        return;
+    }
+    open += strlen("(field '");
+    const char *close = strchr(open, '\'');
+    if (!close || (close - open) > 40) {
+        return;
+    }
+
+    /* Only advise when the failure was inside the breezy module. */
+    lua_getglobal(L, "package");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return;
+    }
+    lua_getfield(L, -1, "loaded");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 2);
+        return;
+    }
+    lua_getfield(L, -1, "breezy");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 3);
+        return;
+    }
+
+    printf("  there is no breezy.%.*s; available:", (int)(close - open), open);
+    int shown = 0;
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+        if (lua_type(L, -2) == LUA_TSTRING) {
+            printf(" %s", lua_tostring(L, -2));
+            shown++;
+        }
+        lua_pop(L, 1);
+    }
+    if (shown == 0) {
+        printf(" (none)");
+    }
+    printf("\n");
+    lua_pop(L, 3);
+}
+
 static void print_lua_error(lua_State *L, const char *prefix)
 {
     const char *msg = lua_tostring(L, -1);
@@ -163,6 +217,7 @@ static void print_lua_error(lua_State *L, const char *prefix)
     } else {
         printf("%s\n", msg);
     }
+    suggest_breezy_field(L, msg);
     lua_pop(L, 1);
 }
 
@@ -4069,6 +4124,83 @@ static int l_time_is_set(lua_State *L)
     return 1;
 }
 
+/*
+ * breezy.log(...) - print a timestamped line, and append it to a file.
+ *
+ * Scripts that run unattended -- a weather poller, a sensor logger -- want a
+ * record, and were reaching for a breezy.log that did not exist. Writing one
+ * by hand means opening a file, formatting a timestamp and appending on every
+ * call, which is enough friction that scripts simply printed instead and lost
+ * the history.
+ *
+ * Writes to /sd/claw/log.txt when a card is present, /root/.claw_log otherwise,
+ * and rotates at 64 KB so it cannot fill the card.
+ */
+#define BREEZY_LOG_MAX_BYTES (64 * 1024)
+
+static const char *breezy_log_path(void)
+{
+    static char path[48];
+    if (path[0]) {
+        return path;
+    }
+    struct stat st;
+    if (stat(BREEZYBOX_SD_MOUNT_POINT, &st) == 0 && S_ISDIR(st.st_mode)) {
+        mkdir("/sd/claw", 0777);
+        snprintf(path, sizeof(path), "/sd/claw/log.txt");
+    } else {
+        snprintf(path, sizeof(path), "%s/.claw_log", BREEZYBOX_MOUNT_POINT);
+    }
+    return path;
+}
+
+static int l_breezy_log(lua_State *L)
+{
+    int argc = lua_gettop(L);
+
+    char stamp[32];
+    time_t now = time(NULL);
+    if (now > 1600000000) {
+        struct tm tm;
+        localtime_r(&now, &tm);
+        strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tm);
+    } else {
+        /* No wall clock set, so uptime is the honest thing to record. */
+        snprintf(stamp, sizeof(stamp), "+%llus",
+                 (unsigned long long)(esp_timer_get_time() / 1000000));
+    }
+
+    char line[512];
+    size_t used = (size_t)snprintf(line, sizeof(line), "[%s] ", stamp);
+    for (int i = 1; i <= argc && used < sizeof(line) - 2; i++) {
+        const char *piece = lua_tostring(L, i);
+        if (!piece) {
+            piece = lua_typename(L, lua_type(L, i));
+        }
+        used += (size_t)snprintf(line + used, sizeof(line) - used, "%s%s",
+                                 i > 1 ? " " : "", piece);
+    }
+
+    printf("%s\n", line);
+
+    const char *path = breezy_log_path();
+    struct stat st;
+    if (stat(path, &st) == 0 && st.st_size > BREEZY_LOG_MAX_BYTES) {
+        char old[64];
+        snprintf(old, sizeof(old), "%s.1", path);
+        remove(old);
+        rename(path, old);
+    }
+    FILE *f = fopen(path, "ab");
+    if (f) {
+        fprintf(f, "%s\n", line);
+        fclose(f);
+    }
+
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 static const luaL_Reg s_breezy_time_lib[] = {
     { "now",    l_time_now },
     { "date",   l_time_date },
@@ -4079,6 +4211,7 @@ static const luaL_Reg s_breezy_time_lib[] = {
 
 static const luaL_Reg s_breezy_lib[] = {
     { "write", l_breezy_write },
+    { "log", l_breezy_log },
     { "heap", l_breezy_heap },
     { "build", l_breezy_build },
     { "exec", l_breezy_exec },

@@ -65,6 +65,7 @@ breezy.remove("/root/test2.lua")
 print(breezy.time.date("%Y-%m-%d"))
 print(breezy.time.now())
 print(breezy.time.is_set())
+breezy.log("weather", "72F", "rain")
 breezy.sleep(0.5)
 breezy.sleep_ms(16)
 breezy.now_ms()
@@ -148,6 +149,8 @@ The current Lua surface is still intentionally small, but it now includes:
 - `breezy.uart` for external UART/serial devices on ports `1` and `2`
 - `breezy.mkdir`, `breezy.remove`, `breezy.rename` and `breezy.stat` for
   managing files and directories, not just reading and writing them
+- `breezy.log` for timestamped output that is also appended to a log file
+  (`/sd/claw/log.txt`, rotated at 64 KB), for scripts that run unattended
 - `breezy.time` for the wall clock: `now()`, `date()`, `set()`, `is_set()`
   (`breezy.now_ms()` is uptime, which cannot date anything)
 - `breezy.json` for encoding and decoding JSON at C speed
