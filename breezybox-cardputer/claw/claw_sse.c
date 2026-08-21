@@ -20,11 +20,60 @@ static void sse_dispatch(claw_sse_t *p)
         p->cb(p->event, p->data, p->ctx);
     }
     p->data_len = 0;
+    p->in_data = false;
     p->event[0] = '\0';
+}
+
+/* Append an unterminated line fragment to the field in progress. Only `data`
+ * can span reads in practice; an event name longer than its buffer is a
+ * malformed stream and is truncated as before. */
+static void sse_line_partial(claw_sse_t *p)
+{
+    if (p->line_len == 0) {
+        return;
+    }
+    if (strncmp(p->line, "data:", 5) == 0 || p->in_data) {
+        const char *src = p->line;
+        size_t len = p->line_len;
+        if (!p->in_data) {
+            src += 5;                       /* skip the field name once */
+            len -= 5;
+            if (len > 0 && *src == ' ') {
+                src++;
+                len--;
+            }
+            if (p->data_len > 0 && p->data_len < CLAW_SSE_MAX_DATA - 1) {
+                p->data[p->data_len++] = '\n';
+            }
+            p->in_data = true;
+        }
+        size_t space = CLAW_SSE_MAX_DATA - 1 - p->data_len;
+        size_t n = len < space ? len : space;
+        if (n < len) {
+            p->truncated = 1;
+        }
+        memcpy(p->data + p->data_len, src, n);
+        p->data_len += n;
+    } else {
+        p->truncated = 1;
+    }
+    p->line_len = 0;
 }
 
 static void sse_line(claw_sse_t *p, const char *line, size_t len)
 {
+    if (p->in_data) {
+        /* Tail of a line already partly copied into `data`. */
+        size_t space = CLAW_SSE_MAX_DATA - 1 - p->data_len;
+        size_t n = len < space ? len : space;
+        if (n < len) {
+            p->truncated = 1;
+        }
+        memcpy(p->data + p->data_len, line, n);
+        p->data_len += n;
+        p->in_data = false;
+        return;
+    }
     if (len == 0) {
         sse_dispatch(p);
         return;
@@ -77,7 +126,14 @@ void claw_sse_feed(claw_sse_t *p, const char *buf, size_t len)
         } else if (p->line_len < CLAW_SSE_MAX_LINE - 1) {
             p->line[p->line_len++] = c;
         } else {
-            p->truncated = 1;        /* overlong line: drop the excess */
+            /*
+             * The carry-over buffer is full but the line has not ended. Flush
+             * what we have into the field and keep going, so a data: line
+             * longer than this buffer still accumulates into `data` -- which is
+             * the buffer sized for whole events.
+             */
+            sse_line_partial(p);
+            p->line[p->line_len++] = c;
         }
     }
 }

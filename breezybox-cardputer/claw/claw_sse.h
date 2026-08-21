@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 
 /*
@@ -28,7 +29,17 @@
  */
 #define CLAW_SSE_MAX_DATA   16384
 #define CLAW_SSE_MAX_EVENT  64
-#define CLAW_SSE_MAX_LINE   (CLAW_SSE_MAX_DATA + 32)
+
+/*
+ * Carry-over for a line split across reads.
+ *
+ * This does not need to match CLAW_SSE_MAX_DATA. Only the tail of an
+ * incomplete line lives here -- each fragment is appended to `data` as soon as
+ * a newline arrives -- so it needs to hold one read's worth, not a whole event.
+ * Sizing it as MAX_DATA + 32 doubled the struct to 32 KB in one contiguous
+ * allocation, which a fragmented heap could not satisfy.
+ */
+#define CLAW_SSE_MAX_LINE   2048
 
 /* event may be "" when the stream sends only `data:` lines (OpenAI, Gemini). */
 typedef void (*claw_sse_cb_t)(const char *event, const char *data, void *ctx);
@@ -39,6 +50,7 @@ typedef struct {
     char   event[CLAW_SSE_MAX_EVENT];
     char   data[CLAW_SSE_MAX_DATA];
     size_t data_len;
+    bool   in_data;                   /* mid-way through an overlong data: line */
     int    truncated;                 /* a field exceeded its buffer */
     claw_sse_cb_t cb;
     void  *ctx;

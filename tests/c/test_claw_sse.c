@@ -191,6 +191,45 @@ int main(void)
         free(s);
     }
 
+    printf("\nlines longer than the carry-over buffer\n");
+    {
+        /*
+         * The line buffer is deliberately smaller than the data buffer, so a
+         * data: line longer than CLAW_SSE_MAX_LINE has to spill into `data`
+         * rather than be dropped. A model writing a screenful of Lua sends
+         * exactly that.
+         */
+        size_t payload = CLAW_SSE_MAX_LINE * 3;
+        char *s2 = malloc(payload + 32);
+        memcpy(s2, "data: ", 6);
+        memset(s2 + 6, 'x', payload);
+        memcpy(s2 + 6 + payload, "\n\n", 3);
+
+        collected_t c;
+        collect(&c, s2, 0);
+        check("long line delivered as one event", c.n == 1, NULL);
+        check("payload survives the spill",
+              c.n == 1 && strlen(c.data[0]) == payload, NULL);
+        bool all_x = c.n == 1;
+        for (size_t i = 0; all_x && i < strlen(c.data[0]); i++) {
+            if (c.data[0][i] != 'x') all_x = false;
+        }
+        check("content intact", all_x, NULL);
+
+        /* And identical however the stream is chopped up. */
+        collected_t base2;
+        collect(&base2, s2, 0);
+        int bad = 0;
+        size_t sizes[] = { 1, 7, 64, 511, 1024, 4096 };
+        for (size_t i = 0; i < sizeof(sizes)/sizeof(sizes[0]); i++) {
+            collected_t g;
+            collect(&g, s2, sizes[i]);
+            if (!same(&base2, &g)) { bad = 1; break; }
+        }
+        check("split invariance on a long line", !bad, NULL);
+        free(s2);
+    }
+
     printf("\n");
     if (failures == 0) {
         printf("all C sse tests passed\n");

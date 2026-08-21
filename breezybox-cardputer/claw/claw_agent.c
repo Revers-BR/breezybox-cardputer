@@ -237,7 +237,15 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     claw_sse_t *parser = calloc(1, sizeof(*parser));
     if (!parser) {
         esp_http_client_cleanup(client);   /* ca_pem belongs to the caller */
-        snprintf(res->error, sizeof(res->error), "out of memory for the stream parser");
+        /* Say what is actually short. Total free is usually fine here; what
+         * runs out is a single contiguous block. */
+        const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        snprintf(res->error, sizeof(res->error),
+                 "could not allocate the %u byte stream parser "
+                 "(free %u, largest block %u)",
+                 (unsigned)sizeof(*parser),
+                 (unsigned)heap_caps_get_free_size(caps),
+                 (unsigned)heap_caps_get_largest_free_block(caps));
         return 1;
     }
     claw_sse_init(parser, on_sse_event, sctx);
