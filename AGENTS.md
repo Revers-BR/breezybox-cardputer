@@ -129,7 +129,11 @@ Where things live:
   `docs/lua.md`. Run it after changing any Lua binding or that block. The
   reference is generated rather than written so it cannot drift; a stale
   reference is worse than none, because the model believes it.
-- `tests/c/` host tests for the C core; `sh tests/c/run.sh`
+- `tests/c/` host tests for the C core; `sh tests/c/run.sh`. The backend tests
+  compile the real backend sources against small stubs in `tests/c/stub/`, so
+  they check the shipped code rather than a copy. Run them after touching any
+  backend: the request bodies are the contract with three different APIs, and a
+  mistake surfaces as an unexplained HTTP 400 on the device.
 
 Things worth knowing before changing it:
 
