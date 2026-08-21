@@ -34,7 +34,7 @@
  * is the largest thing that crosses this interface, and 1 KB was not enough for
  * an 8x8 LED pattern. The owning struct is heap-allocated so this can be
  * generous. */
-#define CLAW_TOOL_ARGS_MAX 8192
+#define CLAW_TOOL_ARGS_MAX 16384
 
 typedef struct {
     char   name[64];

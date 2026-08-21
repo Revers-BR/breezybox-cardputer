@@ -768,7 +768,9 @@ static cJSON *run_lua_schema(void)
     add_prop(props, "code", "string",
              "Lua 5.4 source to run. Start with: local breezy = require(\"breezy\") "
              "-- it is a module, not a global. There is no io or os library, so "
-             "use print() for output. If unsure of a function, call lua_api "
+             "use print() for output. Keep scripts under about 100 lines -- write "
+             "a small working version first, run it, then extend it. If unsure "
+             "of a function, call lua_api "
              "(module= for one section); for worked examples, lua_api's Examples "
              "section lists runnable scripts under /root/lua that read_file can "
              "show you.");
@@ -854,21 +856,11 @@ static bool run_lua_run(const cJSON *args, char *out, size_t out_len)
     }
 
     /*
-     * A guessed module name fails as "attempt to index a nil value (field
-     * 'fs')", which says what broke but not what exists. Naming the real
-     * modules turns a dead end into a correction.
+     * The interpreter already appends the available modules to a nil-field
+     * error (see suggest_breezy_field in cmd/lua.c), so that guidance is
+     * captured in the output above. Repeating it here doubled the size of every
+     * failed result -- enough to overflow the response buffer on the way back.
      */
-    const char *nilfield = strstr(out, "index a nil value (field '");
-    if (nilfield && used + 200 < out_len) {
-        const char *name = nilfield + strlen("index a nil value (field '");
-        const char *end = strchr(name, '\'');
-        if (end && (size_t)(end - name) < 32) {
-            used += (size_t)snprintf(out + used, out_len - used,
-                                     "\n\nThere is no breezy.%.*s. ",
-                                     (int)(end - name), name);
-            used = append_module_list(out, out_len, used);
-        }
-    }
 
     if (saved_path[0]) {
         snprintf(out + used, out_len - used, "\n[saved as %s]", saved_path);

@@ -21,8 +21,12 @@
  *
  * The struct is heap-allocated (see claw_round) precisely so this can be
  * generous; it would not fit on the console task stack.
+ *
+ * 8 KB was still not enough: a model writing a complete TUI application sends
+ * the whole script in one event, and 16 KB covers what a screenful of Lua
+ * plus its JSON escaping actually costs.
  */
-#define CLAW_SSE_MAX_DATA   8192
+#define CLAW_SSE_MAX_DATA   16384
 #define CLAW_SSE_MAX_EVENT  64
 #define CLAW_SSE_MAX_LINE   (CLAW_SSE_MAX_DATA + 32)
 

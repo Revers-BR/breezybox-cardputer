@@ -371,8 +371,8 @@ done:
         ESP_LOGW(TAG, "an SSE field exceeded its %d byte buffer", CLAW_SSE_MAX_DATA);
         if (res->error[0] == '\0') {
             snprintf(res->error, sizeof(res->error),
-                     "the model sent a single message larger than %d bytes and it "
-                     "could not be parsed; try asking for something shorter",
+                     "the reply exceeded %d bytes in one message and could not "
+                     "be parsed. Ask for a smaller first version, then extend it",
                      CLAW_SSE_MAX_DATA);
             rc = 1;
         }
@@ -573,13 +573,26 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
          * an error the user cannot see.
          */
         if (!tool_ok || strncmp(tool_out, "SCRIPT FAILED", 13) == 0) {
-            const char *nl = strchr(tool_out, '\n');
-            int n = nl ? (int)(nl - tool_out) : (int)strlen(tool_out);
-            if (n > 100) {
-                n = 100;
+            /*
+             * Show the line that says what went wrong, not the banner above it.
+             * "SCRIPT FAILED - it was saved..." is itself the first line, so
+             * printing the first line printed only the banner and hid the
+             * error -- which is the one thing worth seeing.
+             */
+            const char *msg = tool_out;
+            if (strncmp(msg, "SCRIPT FAILED", 13) == 0) {
+                const char *nl = strchr(msg, '\n');
+                if (nl) {
+                    msg = nl + 1;
+                }
             }
-            printf("  -> %.*s\n", n, tool_out);
-            snprintf(last_error, sizeof(last_error), "%.*s", n, tool_out);
+            const char *nl = strchr(msg, '\n');
+            int n = nl ? (int)(nl - msg) : (int)strlen(msg);
+            if (n > 110) {
+                n = 110;
+            }
+            printf("  -> %.*s\n", n, msg);
+            snprintf(last_error, sizeof(last_error), "%.*s", n, msg);
         }
         if (verbose) {
             printf("[result: %.120s%s]\n", tool_out,
