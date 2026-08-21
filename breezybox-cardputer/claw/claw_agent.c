@@ -280,6 +280,7 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     claw_sse_init(parser, on_sse_event, sctx);
 
     int rc = 1;
+    const int64_t t_open = esp_timer_get_time();
     if (esp_http_client_open(client, body_len) != ESP_OK) {
         char net[64];
         network_detail(net, sizeof(net));
@@ -298,20 +299,25 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
         }
         char buf[CLAW_IO_CHUNK];
         size_t n;
+        size_t sent = 0;
         bool ok = true;
         while ((n = fread(buf, 1, sizeof(buf), bf)) > 0) {
-            if (esp_http_client_write(client, buf, (int)n) != (int)n) {
+            int w = esp_http_client_write(client, buf, (int)n);
+            if (w != (int)n) {
                 ok = false;
                 break;
             }
+            sent += (size_t)w;
         }
         fclose(bf);
         if (!ok) {
-            char net[64];
-            network_detail(net, sizeof(net));
+            /* How far it got separates a connection that never came up from
+             * one that died partway, which look identical otherwise. */
             snprintf(res->error, sizeof(res->error),
-                     "could not send the request (%s) -- WiFi dropped, or "
-                     "associated with no route. Try 'ping 8.8.8.8'", net);
+                     "sending the request stalled after %u of %d bytes "
+                     "(%u ms). The TLS connection may not have completed.",
+                     (unsigned)sent, body_len,
+                     (unsigned)((esp_timer_get_time() - t_open) / 1000));
             goto done;
         }
     }
