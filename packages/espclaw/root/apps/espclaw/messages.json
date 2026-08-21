@@ -14,6 +14,8 @@
   "agent.write_body.http2": "HTTP %d - %.120s",
   "agent.write_body.http3": "HTTP %d",
   "agent.write_body.http_client_init": "http client init failed",
+  "agent.write_body.network_lost": "lost the network while sending; check 'wifi status' and try again",
+  "agent.write_body.network_lost_connecting": "lost the network while connecting; check 'wifi status' and try again",
   "agent.write_body.out_memory_serialising": "out of memory serialising request",
   "agent.write_body.request_write_failed": "request write failed",
   "tools.i2c_scan.error_cannot_configure": "error: cannot configure I2C on G%d/G%d: %s",

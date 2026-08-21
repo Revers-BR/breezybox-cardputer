@@ -33,6 +33,17 @@ bool claw_session_new(char *out, size_t out_len);
 /* Append one turn to the active session. */
 bool claw_session_append(const char *role, const char *content);
 
+/*
+ * Size of the active transcript, for undoing a turn that did not complete.
+ *
+ * The user turn is written before the request is sent, so a request that fails
+ * would otherwise leave a question with no answer after it. Two of those in a
+ * row give consecutive user turns, which Anthropic rejects and which quietly
+ * misleads the other backends.
+ */
+long claw_session_mark(void);
+bool claw_session_rollback(long mark);
+
 /* Build a messages array from the tail of the active session, newest-first
  * truncated to `budget` bytes of content. Caller owns the result. */
 cJSON *claw_session_replay(size_t budget);

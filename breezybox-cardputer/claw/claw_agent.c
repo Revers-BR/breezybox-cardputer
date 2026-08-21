@@ -263,9 +263,13 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
 
     int rc = 1;
     if (esp_http_client_open(client, body_len) != ESP_OK) {
-        snprintf(res->error, sizeof(res->error),
-                 claw_text("agent.write_body.connect_open_failed",
-                           "connect/open failed"));
+        snprintf(res->error, sizeof(res->error), "%s",
+                 network_ready()
+                     ? claw_text("agent.write_body.connect_open_failed",
+                                 "connect/open failed")
+                     : claw_text("agent.write_body.network_lost_connecting",
+                                 "lost the network while connecting; check "
+                                 "'wifi status' and try again"));
         goto done;
     }
 
@@ -288,9 +292,15 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
         }
         fclose(bf);
         if (!ok) {
-            snprintf(res->error, sizeof(res->error),
-                     claw_text("agent.write_body.request_write_failed",
-                               "request write failed"));
+            /* The usual cause is the WiFi dropping mid-request, and "write
+             * failed" does not say so. */
+            snprintf(res->error, sizeof(res->error), "%s",
+                     network_ready()
+                         ? claw_text("agent.write_body.request_write_failed",
+                                     "request write failed")
+                         : claw_text("agent.write_body.network_lost",
+                                     "lost the network while sending; check "
+                                     "'wifi status' and try again"));
             goto done;
         }
     }
@@ -419,6 +429,10 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
 
     /* Record the user turn first, then replay: the new turn is simply the last
      * line of the transcript, so there is one code path rather than two. */
+    /* Remember where the transcript ended, so a request that never produces an
+     * answer can be undone rather than left dangling. */
+    const long session_mark = claw_session_mark();
+
     if (!claw_session_append("user", prompt)) {
         snprintf(res->error, sizeof(res->error),
                  claw_text("agent.agent_ask.cannot_write_session",
@@ -704,6 +718,10 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
 
     if (rc == 0 && reply && reply[0]) {
         claw_session_append("assistant", reply);
+    } else {
+        /* No answer, so drop the question too: leaving it would put two user
+         * turns in a row on the next request. */
+        claw_session_rollback(session_mark);
     }
 
     free(sctxp);          /* NULL on the paths that released it early */

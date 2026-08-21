@@ -185,6 +185,61 @@ bool claw_session_append(const char *role, const char *content)
     return true;
 }
 
+long claw_session_mark(void)
+{
+    char id[CLAW_SESSION_ID_MAX];
+    if (!claw_session_current(id, sizeof(id))) {
+        return -1;
+    }
+    char p[CLAW_SESSION_PATH_MAX];
+    if (!claw_session_path(id, p, sizeof(p))) {
+        return -1;
+    }
+    struct stat st;
+    return (stat(p, &st) == 0) ? (long)st.st_size : -1;
+}
+
+bool claw_session_rollback(long mark)
+{
+    if (mark < 0) {
+        return false;
+    }
+    char id[CLAW_SESSION_ID_MAX];
+    if (!claw_session_current(id, sizeof(id))) {
+        return false;
+    }
+    char p[CLAW_SESSION_PATH_MAX];
+    if (!claw_session_path(id, p, sizeof(p))) {
+        return false;
+    }
+    struct stat st;
+    if (stat(p, &st) != 0 || (long)st.st_size <= mark) {
+        return true;                  /* nothing was written; nothing to undo */
+    }
+    /* No ftruncate on this VFS, so rewrite the kept prefix. */
+    char *buf = malloc((size_t)mark + 1);
+    if (!buf) {
+        return false;
+    }
+    FILE *f = fopen(p, "rb");
+    if (!f) {
+        free(buf);
+        return false;
+    }
+    size_t got = fread(buf, 1, (size_t)mark, f);
+    fclose(f);
+
+    f = fopen(p, "wb");
+    if (!f) {
+        free(buf);
+        return false;
+    }
+    fwrite(buf, 1, got, f);
+    fclose(f);
+    free(buf);
+    return true;
+}
+
 int claw_session_count(void)
 {
     char id[CLAW_SESSION_ID_MAX];
