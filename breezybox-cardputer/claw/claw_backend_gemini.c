@@ -298,7 +298,21 @@ static const char *err(cJSON *obj, char *buf, size_t n)
 const claw_backend_t claw_backend_gemini = {
     .name          = "gemini",
     .default_model = "gemini-2.5-flash",
-    .ca_file       = "ca/gts_root_r1.pem",
+    /*
+     * No pinned root: the ESP-IDF certificate bundle verifies Google's chain
+     * correctly, as every successful request in practice has shown by logging
+     * "esp-x509-crt-bundle: Certificate validated".
+     *
+     * A pinned GTS Root R1 was added here on the theory that the bundle could
+     * not follow the cross-signed chain. That was wrong -- and worse than
+     * wrong, because pinning a single root breaks whenever the server presents
+     * a path to a different one, which is what mbedtls_ssl_handshake -0x2700
+     * (X509_CERT_VERIFY_FAILED) turned out to be. The bundle carries every
+     * root and needs no maintenance when Google rotates.
+     *
+     * The ca_file mechanism stays available for hosts that genuinely need it.
+     */
+    .ca_file       = NULL,
     .endpoint      = ep,
     .headers       = hdrs,
     .build_body    = body,
