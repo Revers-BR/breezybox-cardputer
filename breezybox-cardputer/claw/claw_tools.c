@@ -2,6 +2,7 @@
 #include "claw_util.h"
 #include "claw_config.h"
 #include "claw_memory.h"
+#include "claw_text.h"
 #include "breezy_cmd.h"
 #include "breezy_exec.h"
 
@@ -100,14 +101,23 @@ static const char *arg_str(const cJSON *args, const char *key)
 }
 
 /* A property entry for a JSON schema. */
-static void add_prop(cJSON *props, const char *name, const char *type, const char *desc)
+/*
+ * `id` keys the description for /sd/claw/tools.json, e.g. "read_file.path".
+ * The compiled text is the fallback, so a file missing a key -- or missing
+ * entirely -- leaves that description exactly as shipped.
+ */
+static void add_prop_id(cJSON *props, const char *tool, const char *name,
+                        const char *type, const char *desc)
 {
     cJSON *p = cJSON_CreateObject();
     if (!p) {
         return;
     }
+    char id[80];
+    snprintf(id, sizeof(id), "tools.%s.param.%s", tool, name);
+
     cJSON_AddStringToObject(p, "type", type);
-    cJSON_AddStringToObject(p, "description", desc);
+    cJSON_AddStringToObject(p, "description", claw_text(id, desc));
     cJSON_AddItemToObject(props, name, p);
 }
 
@@ -134,7 +144,7 @@ static cJSON *schema_of(const char *const *required, size_t nreq, cJSON *props)
 static cJSON *read_file_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "path", "string", "Absolute path under /root or /sd");
+    add_prop_id(props, "read_file", "path", "string", "Absolute path under /root or /sd");
     static const char *req[] = { "path" };
     return schema_of(req, 1, props);
 }
@@ -143,16 +153,22 @@ static bool read_file_run(const cJSON *args, char *out, size_t out_len)
 {
     const char *path = arg_str(args, "path");
     if (!path) {
-        snprintf(out, out_len, "error: 'path' is required");
+        snprintf(out, out_len,
+                 claw_text("tools.read_file.error_path_required",
+                           "error: 'path' is required"));
         return false;
     }
     if (!claw_tools_path_allowed(path)) {
-        snprintf(out, out_len, "error: path must be under /root or /sd");
+        snprintf(out, out_len,
+                 claw_text("tools.read_file.error_path_must",
+                           "error: path must be under /root or /sd"));
         return false;
     }
     FILE *f = fopen(path, "rb");
     if (!f) {
-        snprintf(out, out_len, "error: cannot open %s", path);
+        snprintf(out, out_len,
+                 claw_text("tools.read_file.error_cannot_open",
+                           "error: cannot open %s"), path);
         return false;
     }
     size_t got = fread(out, 1, out_len - 64, f);
@@ -174,9 +190,9 @@ static bool read_file_run(const cJSON *args, char *out, size_t out_len)
 static cJSON *write_file_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "path", "string", "Absolute path under /root or /sd");
-    add_prop(props, "content", "string", "Text to write");
-    add_prop(props, "append", "boolean", "Append instead of overwriting (default false)");
+    add_prop_id(props, "write_file", "path", "string", "Absolute path under /root or /sd");
+    add_prop_id(props, "write_file", "content", "string", "Text to write");
+    add_prop_id(props, "write_file", "append", "boolean", "Append instead of overwriting (default false)");
     static const char *req[] = { "path", "content" };
     return schema_of(req, 2, props);
 }
@@ -186,11 +202,15 @@ static bool write_file_run(const cJSON *args, char *out, size_t out_len)
     const char *path = arg_str(args, "path");
     const char *content = arg_str(args, "content");
     if (!path || !content) {
-        snprintf(out, out_len, "error: 'path' and 'content' are required");
+        snprintf(out, out_len,
+                 claw_text("tools.write_file.error_path_content",
+                           "error: 'path' and 'content' are required"));
         return false;
     }
     if (!claw_tools_path_allowed(path)) {
-        snprintf(out, out_len, "error: path must be under /root or /sd");
+        snprintf(out, out_len,
+                 claw_text("tools.write_file.error_path_must",
+                           "error: path must be under /root or /sd"));
         return false;
     }
     const cJSON *ap = cJSON_GetObjectItemCaseSensitive(args, "append");
@@ -208,14 +228,18 @@ static bool write_file_run(const cJSON *args, char *out, size_t out_len)
 
     FILE *f = fopen(path, append ? "ab" : "wb");
     if (!f) {
-        snprintf(out, out_len, "error: cannot write %s", path);
+        snprintf(out, out_len,
+                 claw_text("tools.write_file.error_cannot_write",
+                           "error: cannot write %s"), path);
         return false;
     }
     size_t len = strlen(content);
     size_t wrote = fwrite(content, 1, len, f);
     fclose(f);
     if (wrote != len) {
-        snprintf(out, out_len, "error: short write to %s (%u of %u bytes)",
+        snprintf(out, out_len,
+                 claw_text("tools.write_file.error_short_write",
+                           "error: short write to %s (%u of %u bytes)"),
                  path, (unsigned)wrote, (unsigned)len);
         return false;
     }
@@ -239,7 +263,9 @@ static bool write_file_run(const cJSON *args, char *out, size_t out_len)
         }
     }
 
-    snprintf(out, out_len, "wrote %u bytes to %s", (unsigned)wrote, path);
+    snprintf(out, out_len,
+             claw_text("tools.write_file.wrote_bytes",
+                       "wrote %u bytes to %s"), (unsigned)wrote, path);
     return true;
 }
 
@@ -248,7 +274,7 @@ static bool write_file_run(const cJSON *args, char *out, size_t out_len)
 static cJSON *list_dir_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "path", "string", "Absolute directory under /root or /sd");
+    add_prop_id(props, "list_dir", "path", "string", "Absolute directory under /root or /sd");
     static const char *req[] = { "path" };
     return schema_of(req, 1, props);
 }
@@ -257,16 +283,22 @@ static bool list_dir_run(const cJSON *args, char *out, size_t out_len)
 {
     const char *path = arg_str(args, "path");
     if (!path) {
-        snprintf(out, out_len, "error: 'path' is required");
+        snprintf(out, out_len,
+                 claw_text("tools.list_dir.error_path_required",
+                           "error: 'path' is required"));
         return false;
     }
     if (!claw_tools_path_allowed(path)) {
-        snprintf(out, out_len, "error: path must be under /root or /sd");
+        snprintf(out, out_len,
+                 claw_text("tools.list_dir.error_path_must",
+                           "error: path must be under /root or /sd"));
         return false;
     }
     DIR *d = opendir(path);
     if (!d) {
-        snprintf(out, out_len, "error: cannot open directory %s", path);
+        snprintf(out, out_len,
+                 claw_text("tools.list_dir.error_cannot_open",
+                           "error: cannot open directory %s"), path);
         return false;
     }
 
@@ -300,7 +332,9 @@ static bool list_dir_run(const cJSON *args, char *out, size_t out_len)
     }
     closedir(d);
     if (n == 0) {
-        snprintf(out, out_len, "(empty directory)");
+        snprintf(out, out_len,
+                 claw_text("tools.list_dir.empty_directory",
+                           "(empty directory)"));
     }
     return true;
 }
@@ -310,7 +344,7 @@ static bool list_dir_run(const cJSON *args, char *out, size_t out_len)
 static cJSON *run_shell_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "command", "string",
+    add_prop_id(props, "run_shell", "command", "string",
              "A single BreezyBox shell command, e.g. 'ls /sd', 'df', 'wifi status', "
              "'help'. Not a Unix shell: no bash, no pipes to external tools, no "
              "scripts. Run 'help' first if unsure what exists.");
@@ -322,7 +356,9 @@ static bool run_shell_run(const cJSON *args, char *out, size_t out_len)
 {
     const char *cmd = arg_str(args, "command");
     if (!cmd || !cmd[0]) {
-        snprintf(out, out_len, "error: 'command' is required");
+        snprintf(out, out_len,
+                 claw_text("tools.run_shell.error_command_required",
+                           "error: 'command' is required"));
         return false;
     }
 
@@ -343,7 +379,9 @@ static bool run_shell_run(const cJSON *args, char *out, size_t out_len)
     char redirected[512];
     int n = snprintf(redirected, sizeof(redirected), "%s > %s", cmd, tmp);
     if (n < 0 || (size_t)n >= sizeof(redirected)) {
-        snprintf(out, out_len, "error: command too long");
+        snprintf(out, out_len,
+                 claw_text("tools.run_shell.error_command_too",
+                           "error: command too long"));
         return false;
     }
 
@@ -351,7 +389,9 @@ static bool run_shell_run(const cJSON *args, char *out, size_t out_len)
 
     FILE *f = fopen(tmp, "rb");
     if (!f) {
-        snprintf(out, out_len, "(command produced no output)");
+        snprintf(out, out_len,
+                 claw_text("tools.run_shell.command_produced_output",
+                           "(command produced no output)"));
         return true;
     }
     size_t got = fread(out, 1, out_len - 32, f);
@@ -365,7 +405,9 @@ static bool run_shell_run(const cJSON *args, char *out, size_t out_len)
 
     out[got] = '\0';
     if (got == 0) {
-        snprintf(out, out_len, "(command produced no output)");
+        snprintf(out, out_len,
+                 claw_text("tools.run_shell.command_produced_output2",
+                           "(command produced no output)"));
     } else if (more > 0) {
         snprintf(out + got, 32, "\n[truncated, %ld more]", more);
     }
@@ -381,15 +423,15 @@ static bool run_shell_run(const cJSON *args, char *out, size_t out_len)
 static cJSON *memory_save_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "name", "string",
+    add_prop_id(props, "memory_save", "name", "string",
              "Short identifier, letters/digits/dash/underscore only, e.g. "
              "'grove-sensor' or 'user-preferences'. Saving again with the same "
              "name replaces it.");
-    add_prop(props, "description", "string",
+    add_prop_id(props, "memory_save", "description", "string",
              "One line describing what this holds. This is what you see in "
              "future conversations, so make it specific enough to know whether "
              "it is worth reading.");
-    add_prop(props, "content", "string", "The facts to remember.");
+    add_prop_id(props, "memory_save", "content", "string", "The facts to remember.");
     static const char *req[] = { "name", "description", "content" };
     return schema_of(req, 3, props);
 }
@@ -400,7 +442,9 @@ static bool memory_save_run(const cJSON *args, char *out, size_t out_len)
     const char *desc = arg_str(args, "description");
     const char *content = arg_str(args, "content");
     if (!name || !content) {
-        snprintf(out, out_len, "error: 'name' and 'content' are required");
+        snprintf(out, out_len,
+                 claw_text("tools.memory_save.error_name_content",
+                           "error: 'name' and 'content' are required"));
         return false;
     }
     if (!claw_memory_save(name, desc, content)) {
@@ -409,14 +453,16 @@ static bool memory_save_run(const cJSON *args, char *out, size_t out_len)
                  "dash and underscore only)", name);
         return false;
     }
-    snprintf(out, out_len, "remembered '%s'", name);
+    snprintf(out, out_len,
+             claw_text("tools.memory_save.remembered",
+                       "remembered '%s'"), name);
     return true;
 }
 
 static cJSON *memory_read_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "name", "string", "Name from the memory index");
+    add_prop_id(props, "memory_read", "name", "string", "Name from the memory index");
     static const char *req[] = { "name" };
     return schema_of(req, 1, props);
 }
@@ -425,11 +471,15 @@ static bool memory_read_run(const cJSON *args, char *out, size_t out_len)
 {
     const char *name = arg_str(args, "name");
     if (!name) {
-        snprintf(out, out_len, "error: 'name' is required");
+        snprintf(out, out_len,
+                 claw_text("tools.memory_read.error_name_required",
+                           "error: 'name' is required"));
         return false;
     }
     if (!claw_memory_read(name, out, out_len)) {
-        snprintf(out, out_len, "error: nothing remembered under '%s'", name);
+        snprintf(out, out_len,
+                 claw_text("tools.memory_read.error_nothing_remembered",
+                           "error: nothing remembered under '%s'"), name);
         return false;
     }
     return true;
@@ -438,7 +488,7 @@ static bool memory_read_run(const cJSON *args, char *out, size_t out_len)
 static cJSON *memory_forget_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "name", "string", "Name from the memory index");
+    add_prop_id(props, "memory_forget", "name", "string", "Name from the memory index");
     static const char *req[] = { "name" };
     return schema_of(req, 1, props);
 }
@@ -447,19 +497,27 @@ static bool memory_forget_run(const cJSON *args, char *out, size_t out_len)
 {
     const char *name = arg_str(args, "name");
     if (!name) {
-        snprintf(out, out_len, "error: 'name' is required");
+        snprintf(out, out_len,
+                 claw_text("tools.memory_forget.error_name_required",
+                           "error: 'name' is required"));
         return false;
     }
     /* Forgetting destroys something the user may care about. */
     if (!confirm("forget a stored memory", name)) {
-        snprintf(out, out_len, "refused: the user did not approve forgetting '%s'", name);
+        snprintf(out, out_len,
+                 claw_text("tools.memory_forget.refused_user_did",
+                           "refused: the user did not approve forgetting '%s'"), name);
         return false;
     }
     if (!claw_memory_delete(name)) {
-        snprintf(out, out_len, "error: nothing remembered under '%s'", name);
+        snprintf(out, out_len,
+                 claw_text("tools.memory_forget.error_nothing_remembered",
+                           "error: nothing remembered under '%s'"), name);
         return false;
     }
-    snprintf(out, out_len, "forgot '%s'", name);
+    snprintf(out, out_len,
+             claw_text("tools.memory_forget.forgot",
+                       "forgot '%s'"), name);
     return true;
 }
 
@@ -475,8 +533,8 @@ static bool memory_forget_run(const cJSON *args, char *out, size_t out_len)
 static cJSON *i2c_scan_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "sda", "integer", "SDA pin (default 1, the Grove port)");
-    add_prop(props, "scl", "integer", "SCL pin (default 2, the Grove port)");
+    add_prop_id(props, "i2c_scan", "sda", "integer", "SDA pin (default 1, the Grove port)");
+    add_prop_id(props, "i2c_scan", "scl", "integer", "SCL pin (default 2, the Grove port)");
     return schema_of(NULL, 0, props);
 }
 
@@ -515,13 +573,17 @@ static bool i2c_scan_run(const cJSON *args, char *out, size_t out_len)
 
     esp_err_t err = i2c_param_config(port, &conf);
     if (err != ESP_OK) {
-        snprintf(out, out_len, "error: cannot configure I2C on G%d/G%d: %s",
+        snprintf(out, out_len,
+                 claw_text("tools.i2c_scan.error_cannot_configure",
+                           "error: cannot configure I2C on G%d/G%d: %s"),
                  sda, scl, esp_err_to_name(err));
         return false;
     }
     err = i2c_driver_install(port, I2C_MODE_MASTER, 0, 0, 0);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        snprintf(out, out_len, "error: cannot install I2C driver: %s",
+        snprintf(out, out_len,
+                 claw_text("tools.i2c_scan.error_cannot_install",
+                           "error: cannot install I2C driver: %s"),
                  esp_err_to_name(err));
         return false;
     }
@@ -596,7 +658,7 @@ static const char *const k_api_paths[] = {
 static cJSON *lua_api_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "module", "string",
+    add_prop_id(props, "lua_api", "module", "string",
              "Which part of the API to return, e.g. 'led', 'i2c', 'gfx', "
              "'hardware' (Grove port and pin map), or 'core'. Omit to list the "
              "available modules. The full reference is far too large to return "
@@ -771,7 +833,7 @@ static bool lua_api_run(const cJSON *args, char *out, size_t out_len)
 static cJSON *run_lua_schema(void)
 {
     cJSON *props = cJSON_CreateObject();
-    add_prop(props, "code", "string",
+    add_prop_id(props, "run_lua", "code", "string",
              "Lua 5.4 source to run. Start with: local breezy = require(\"breezy\") "
              "-- it is a module, not a global. There is no io or os library, so "
              "use print() for output. Keep scripts under about 100 lines -- write "
@@ -780,7 +842,7 @@ static cJSON *run_lua_schema(void)
              "(module= for one section); for worked examples, lua_api's Examples "
              "section lists runnable scripts under /root/lua that read_file can "
              "show you.");
-    add_prop(props, "save_as", "string",
+    add_prop_id(props, "run_lua", "save_as", "string",
              "Optional name to keep this script as a reusable skill, e.g. "
              "'blink'. Saved to /sd/claw/skills/<name>.lua and runnable later "
              "with 'lua /sd/claw/skills/<name>.lua'.");
@@ -792,7 +854,9 @@ static bool run_lua_run(const cJSON *args, char *out, size_t out_len)
 {
     const char *code = arg_str(args, "code");
     if (!code || !code[0]) {
-        snprintf(out, out_len, "error: 'code' is required");
+        snprintf(out, out_len,
+                 claw_text("tools.run_lua.error_code_required",
+                           "error: 'code' is required"));
         return false;
     }
 
@@ -818,7 +882,9 @@ static bool run_lua_run(const cJSON *args, char *out, size_t out_len)
     const char *script = "/sd/claw/tmp/run.lua";
     FILE *f = fopen(script, "wb");
     if (!f) {
-        snprintf(out, out_len, "error: cannot write the script to run");
+        snprintf(out, out_len,
+                 claw_text("tools.run_lua.error_cannot_write",
+                           "error: cannot write the script to run"));
         return false;
     }
     fwrite(code, 1, strlen(code), f);
@@ -839,7 +905,9 @@ static bool run_lua_run(const cJSON *args, char *out, size_t out_len)
     out[used] = '\0';
 
     if (used == 0) {
-        snprintf(out, out_len, "(script produced no output)");
+        snprintf(out, out_len,
+                 claw_text("tools.run_lua.script_produced_output",
+                           "(script produced no output)"));
         used = strlen(out);
     }
 
@@ -912,6 +980,18 @@ static const claw_tool_t k_tools[] = {
     { "device_info", "Report board, memory and storage information.",  device_info_schema, device_info_run },
 };
 
+/*
+ * The description the model sees, overridable per tool via
+ * /sd/claw/tools.json as { "run_lua": { "description": "..." } }.
+ * The table below stays the source of truth for the fallback.
+ */
+const char *claw_tool_description(const claw_tool_t *t)
+{
+    char id[80];
+    snprintf(id, sizeof(id), "tools.%s.description", t->name);
+    return claw_text(id, t->description);
+}
+
 size_t claw_tools_count(void)
 {
     return sizeof(k_tools) / sizeof(k_tools[0]);
@@ -941,7 +1021,9 @@ bool claw_tools_run(const char *name, const cJSON *args, char *out, size_t out_l
     if (!t) {
         /* Tell the model rather than failing the turn: it can usually pick a
          * different tool. */
-        snprintf(out, out_len, "error: no such tool '%s'", name ? name : "(null)");
+        snprintf(out, out_len,
+                 claw_text("tools.tools.error_such_tool",
+                           "error: no such tool '%s'"), name ? name : "(null)");
         return false;
     }
     return t->run(args, out, out_len);

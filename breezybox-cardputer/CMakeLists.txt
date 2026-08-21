@@ -59,6 +59,7 @@ idf_component_register(
         "claw/claw_prompt.c"
         "claw/claw_session.c"
         "claw/claw_sse.c"
+        "claw/claw_text.c"
         "claw/claw_tools.c"
         "claw/claw_util.c"
         "cmd/lua_https.c"

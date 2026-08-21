@@ -259,6 +259,61 @@ Add your own instructions in `/sd/claw/system.md` and they are appended:
 echo "Prefer metric units. I am building a weather station." > /sd/claw/system.md
 ```
 
+## Tuning what the model is told
+
+Every string that steers the model can be replaced by a file on the SD card, so
+rewording needs no rebuild and no flash:
+
+```
+/sd/claw/prompt.md      replaces the device description
+/sd/claw/tools.json     tool and parameter descriptions
+/sd/claw/messages.json  the messages tools return when something fails
+/sd/claw/system.md      appended to the prompt (unchanged)
+```
+
+Start from the shipped defaults:
+
+```sh
+claw text dump      # writes the three files to /sd/claw
+claw text status    # shows which are active
+```
+
+Then edit and reload without leaving a session:
+
+```
+claw> /reload
+reloaded text overrides
+```
+
+**Nothing is seeded automatically.** An absent file means the compiled text, so
+a firmware update carrying better wording still takes effect. Overriding is a
+deliberate act, and deleting a file returns that text to the built-in version.
+
+**Fallback is per key, not per file.** A `tools.json` missing a tool, or a
+`messages.json` missing an id, falls back for that key alone. A malformed file
+falls back entirely and says so in `claw text status`.
+
+### Format specifiers are checked
+
+Many messages contain `%s`, `%d` or `%u` and are filled in at the call site.
+`"wrote %u bytes to %s"` is a contract: an override reading `"wrote %s bytes"`
+would make the code read a number as a pointer.
+
+So an override is only accepted if its conversion specifiers match the built-in
+text exactly, in type and order. Reword freely, add or remove `%%`, change width
+and flags — but change a `%d` to a `%s`, reorder them, or drop one, and the
+override is refused, the built-in text is used, and `claw text status` reports
+it.
+
+The message ids are derived from their own text (`tools.read_file.error_cannot_open`),
+so they stay stable when messages are added or reordered.
+
+Regenerate the shipped defaults after changing any of this text in C:
+
+```sh
+python3 tools/gen_claw_text.py
+```
+
 ## Memory
 
 Sessions are what was said; memory is what the device should still know next

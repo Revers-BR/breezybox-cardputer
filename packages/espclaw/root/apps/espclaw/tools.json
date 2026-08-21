@@ -1,0 +1,71 @@
+{
+  "read_file": {
+    "description": "Read a text file from the device.",
+    "param": {
+      "path": "Absolute path under /root or /sd"
+    }
+  },
+  "write_file": {
+    "description": "Write or append text to a file on the device.",
+    "param": {
+      "path": "Absolute path under /root or /sd",
+      "content": "Text to write",
+      "append": "Append instead of overwriting (default false)"
+    }
+  },
+  "list_dir": {
+    "description": "List the contents of a directory.",
+    "param": {
+      "path": "Absolute directory under /root or /sd"
+    }
+  },
+  "run_shell": {
+    "description": "Run a command in the BreezyBox shell and return its output. This is an embedded shell, not Unix: there is no bash, no shebang scripts and no package manager. Run 'help' to list the available commands. For network requests use run_lua with breezy.https instead.",
+    "param": {
+      "command": "A single BreezyBox shell command, e.g. 'ls /sd', 'df', 'wifi status', 'help'. Not a Unix shell: no bash, no pipes to external tools, no scripts. Run 'help' first if unsure what exists."
+    }
+  },
+  "memory_save": {
+    "description": "Remember something for future conversations. Use when you learn a durable fact about the user, their hardware or their project.",
+    "param": {
+      "name": "Short identifier, letters/digits/dash/underscore only, e.g. 'grove-sensor' or 'user-preferences'. Saving again with the same name replaces it.",
+      "description": "One line describing what this holds. This is what you see in future conversations, so make it specific enough to know whether it is worth reading.",
+      "content": "The facts to remember."
+    }
+  },
+  "memory_read": {
+    "description": "Read the full text of something in your memory index.",
+    "param": {
+      "name": "Name from the memory index"
+    }
+  },
+  "memory_forget": {
+    "description": "Delete something from memory. Asks the user first.",
+    "param": {
+      "name": "Name from the memory index"
+    }
+  },
+  "i2c_scan": {
+    "description": "Scan the Grove port for I2C devices. Detects I2C peripherals only; devices that do not drive the bus (LEDs, servos, relays, some displays) cannot be found this way and should be driven directly with run_lua.",
+    "param": {
+      "sda": "SDA pin (default 1, the Grove port)",
+      "scl": "SCL pin (default 2, the Grove port)"
+    }
+  },
+  "lua_api": {
+    "description": "Get the breezy Lua API reference for this device. Call with no arguments to list the available sections, then again with module= for the one you need (e.g. 'led' for addressable LEDs, 'hardware' for the Grove pinout). Always check here before writing a Lua script.",
+    "param": {
+      "module": "Which part of the API to return, e.g. 'led', 'i2c', 'gfx', 'hardware' (Grove port and pin map), or 'core'. Omit to list the available modules. The full reference is far too large to return at once, so ask for the part you need."
+    }
+  },
+  "run_lua": {
+    "description": "Run a Lua script on the device, optionally saving it as a reusable skill. Use this to control hardware or compute something the other tools cannot.",
+    "param": {
+      "code": "Lua 5.4 source to run. Start with: local breezy = require(\"breezy\") -- it is a module, not a global. There is no io or os library, so use print() for output. Keep scripts under about 100 lines -- write a small working version first, run it, then extend it. If unsure of a function, call lua_api (module= for one section); for worked examples, lua_api's Examples section lists runnable scripts under /root/lua that read_file can show you.",
+      "save_as": "Optional name to keep this script as a reusable skill, e.g. 'blink'. Saved to /sd/claw/skills/<name>.lua and runnable later with 'lua /sd/claw/skills/<name>.lua'."
+    }
+  },
+  "device_info": {
+    "description": "Report board, memory and storage information."
+  }
+}

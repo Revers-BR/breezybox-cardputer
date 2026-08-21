@@ -2,16 +2,25 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
 #include "breezybox.h"
+#include "claw_text.h"
+#include "claw_util.h"
 
-/* Paths a user can drop their own instructions into. */
+/* Appended to the prompt. Distinct from /sd/claw/prompt.md, which replaces the
+ * device description below. */
 static const char *const k_user_prompt[] = {
     "/sd/claw/system.md",
     "/root/.claw_system.md",
 };
+
+/* Replaces k_device_prompt when present. Not auto-seeded: an absent file must
+ * mean the compiled text, so a firmware update carrying better wording still
+ * takes effect. `claw text dump` writes a starting point on request. */
+#define PROMPT_OVERRIDE "/sd/claw/prompt.md"
 
 /*
  * Facts, not manners. Each line exists because getting it wrong cost a turn:
@@ -79,7 +88,18 @@ static size_t append_shell_commands(char *out, size_t out_len, size_t used)
 
 size_t claw_prompt_build(char *out, size_t out_len)
 {
-    size_t used = (size_t)snprintf(out, out_len, "%s", k_device_prompt);
+    size_t used = 0;
+
+    char *override = claw_read_file(PROMPT_OVERRIDE, 4096, NULL);
+    if (override && override[0]) {
+        used = (size_t)snprintf(out, out_len, "%s", override);
+    } else {
+        used = (size_t)snprintf(out, out_len, "%s", k_device_prompt);
+    }
+    free(override);
+
+    /* The command list is enumerated from the live registry either way: it is
+     * a fact about this build, not something worth overriding. */
     used = append_shell_commands(out, out_len, used);
 
     /* Append the user's own instructions, if they left any. */

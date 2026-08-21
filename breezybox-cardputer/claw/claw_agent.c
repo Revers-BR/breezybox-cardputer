@@ -5,6 +5,7 @@
 #include "claw_prompt.h"
 #include "claw_session.h"
 #include "claw_sse.h"
+#include "claw_text.h"
 #include "claw_tools.h"
 #include "claw_util.h"
 
@@ -95,7 +96,9 @@ static void resolve_ca(const claw_backend_t *b, char *out, size_t n)
         return;
     }
     for (size_t i = 0; i < sizeof(k_install_dirs) / sizeof(k_install_dirs[0]); i++) {
-        snprintf(out, n, "%s/%s", k_install_dirs[i], b->ca_file);
+        snprintf(out, n,
+                 claw_text("agent.resolve_ca.msg",
+                           "%s/%s"), k_install_dirs[i], b->ca_file);
         if (path_exists(out)) {
             return;
         }
@@ -188,7 +191,9 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
 {
     cJSON *body = backend->build_body(messages);
     if (!body) {
-        snprintf(res->error, sizeof(res->error), "could not build request body");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.write_body.could_build_request",
+                           "could not build request body"));
         return 1;
     }
     if (backend->add_tools) {
@@ -198,7 +203,9 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     char *json = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
     if (!json) {
-        snprintf(res->error, sizeof(res->error), "out of memory serialising request");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.write_body.out_memory_serialising",
+                           "out of memory serialising request"));
         return 1;
     }
 
@@ -207,7 +214,9 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     int body_len = (int)strlen(json);
     cJSON_free(json);
     if (!staged) {
-        snprintf(res->error, sizeof(res->error), "cannot write request file");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.write_body.cannot_write_request",
+                           "cannot write request file"));
         return 1;
     }
 
@@ -227,7 +236,9 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) {
-        snprintf(res->error, sizeof(res->error), "http client init failed");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.write_body.http_client_init",
+                           "http client init failed"));
         return 1;
     }
     backend->headers(client, api_key);
@@ -252,14 +263,18 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
 
     int rc = 1;
     if (esp_http_client_open(client, body_len) != ESP_OK) {
-        snprintf(res->error, sizeof(res->error), "connect/open failed");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.write_body.connect_open_failed",
+                           "connect/open failed"));
         goto done;
     }
 
     {   /* stream the body off disk rather than holding it in RAM */
         FILE *bf = fopen(req_path, "rb");
         if (!bf) {
-            snprintf(res->error, sizeof(res->error), "cannot reopen request file");
+            snprintf(res->error, sizeof(res->error),
+                     claw_text("agent.write_body.cannot_reopen_request",
+                               "cannot reopen request file"));
             goto done;
         }
         char buf[CLAW_IO_CHUNK];
@@ -273,13 +288,17 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
         }
         fclose(bf);
         if (!ok) {
-            snprintf(res->error, sizeof(res->error), "request write failed");
+            snprintf(res->error, sizeof(res->error),
+                     claw_text("agent.write_body.request_write_failed",
+                               "request write failed"));
             goto done;
         }
     }
 
     if (esp_http_client_fetch_headers(client) < 0) {
-        snprintf(res->error, sizeof(res->error), "fetch headers failed");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.write_body.fetch_headers_failed",
+                           "fetch headers failed"));
         goto done;
     }
     res->status = esp_http_client_get_status_code(client);
@@ -336,12 +355,18 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
             msg = backend->extract_error(obj, errbuf, sizeof(errbuf));
         }
         if (msg) {
-            snprintf(res->error, sizeof(res->error), "HTTP %d - %s", res->status, msg);
+            snprintf(res->error, sizeof(res->error),
+                     claw_text("agent.write_body.http",
+                               "HTTP %d - %s"), res->status, msg);
         } else if (sctx->error_body_len) {
-            snprintf(res->error, sizeof(res->error), "HTTP %d - %.120s",
+            snprintf(res->error, sizeof(res->error),
+                     claw_text("agent.write_body.http2",
+                               "HTTP %d - %.120s"),
                      res->status, sctx->error_body);
         } else {
-            snprintf(res->error, sizeof(res->error), "HTTP %d", res->status);
+            snprintf(res->error, sizeof(res->error),
+                     claw_text("agent.write_body.http3",
+                               "HTTP %d"), res->status);
         }
         cJSON_Delete(obj);
     } else if (res->error[0] == '\0') {
@@ -384,7 +409,9 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     char api_key[CLAW_CFG_MAX_VALUE];
     const char *keyerr = NULL;
     if (!claw_config_api_key(api_key, sizeof(api_key), &keyerr)) {
-        snprintf(res->error, sizeof(res->error), "%s", keyerr ? keyerr : "no API key");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.agent_ask.msg",
+                           "%s"), keyerr ? keyerr : "no API key");
         return 1;
     }
 
@@ -393,14 +420,18 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     /* Record the user turn first, then replay: the new turn is simply the last
      * line of the transcript, so there is one code path rather than two. */
     if (!claw_session_append("user", prompt)) {
-        snprintf(res->error, sizeof(res->error), "cannot write to session transcript");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.agent_ask.cannot_write_session",
+                           "cannot write to session transcript"));
         return 1;
     }
 
     size_t budget = (size_t)claw_config_get_int("context_budget", 6144);
     cJSON *messages = claw_session_replay(budget);
     if (!messages) {
-        snprintf(res->error, sizeof(res->error), "out of memory building request");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.agent_ask.out_memory_building",
+                           "out of memory building request"));
         return 1;
     }
     res->turns = cJSON_GetArraySize(messages);
@@ -479,7 +510,9 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         free(ca_pem);
         free(reply);
         cJSON_Delete(messages);
-        snprintf(res->error, sizeof(res->error), "out of memory starting the request");
+        snprintf(res->error, sizeof(res->error),
+                 claw_text("agent.agent_ask.out_memory_starting",
+                           "out of memory starting the request"));
         return 1;
     }
 
@@ -545,7 +578,9 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         if (!tool_out) {
             tool_out = malloc(CLAW_TOOL_RESULT_MAX);
             if (!tool_out) {
-                snprintf(res->error, sizeof(res->error), "out of memory for tool output");
+                snprintf(res->error, sizeof(res->error),
+                         claw_text("agent.agent_ask.out_memory_tool",
+                                   "out of memory for tool output"));
                 cJSON_Delete(call_args);
                 free(saved_reply);
                 rc = 1;

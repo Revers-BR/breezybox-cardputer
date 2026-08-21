@@ -52,6 +52,10 @@ void claw_tools_set_confirm(claw_confirm_fn fn);
 /* True when this shell command would delete or overwrite something. */
 bool claw_tools_shell_is_destructive(const char *command);
 
+/* The description to send to the model: the SD override if one is valid,
+ * otherwise the compiled `t->description`. */
+const char *claw_tool_description(const claw_tool_t *t);
+
 size_t claw_tools_count(void);
 const claw_tool_t *claw_tools_at(size_t i);
 const claw_tool_t *claw_tools_find(const char *name);

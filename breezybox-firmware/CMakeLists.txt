@@ -82,6 +82,14 @@ endif()
 if(EXISTS ${ESPCLAW_PKG}/lua_api.md)
     file(COPY ${ESPCLAW_PKG}/lua_api.md DESTINATION ${BREEZY_FS_IMAGE_DIR}/apps/espclaw)
 endif()
+# Default model-facing text. Shipped so `claw text dump` has something to copy;
+# never auto-seeded onto the card, so an absent override always means the
+# compiled text and a firmware update still takes effect.
+foreach(f prompt.md tools.json messages.json)
+    if(EXISTS ${ESPCLAW_PKG}/${f})
+        file(COPY ${ESPCLAW_PKG}/${f} DESTINATION ${BREEZY_FS_IMAGE_DIR}/apps/espclaw)
+    endif()
+endforeach()
 if(EXISTS ${ESPCLAW_PKG}/models.json)
     # Shipped default only: it is copied to /sd/claw/models.json on first run,
     # and that copy is what users edit.

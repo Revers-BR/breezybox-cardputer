@@ -17,6 +17,7 @@
 #include "claw_models.h"
 #include "claw_tools.h"
 #include "claw_session.h"
+#include "claw_text.h"
 
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
@@ -35,6 +36,31 @@ static const char *k_shown_keys[] = {
     "max_tokens", "context_budget", "base_url", "ca_file",
     "timeout_ms", "auto_approve", "store", "anthropic.key", "openai.key", "gemini.key",
 };
+
+/* Inspect and seed the SD text overrides. */
+static int cmd_text(int argc, char **argv)
+{
+    const char *sub = (argc > 0) ? argv[0] : "status";
+
+    if (strcmp(sub, "status") == 0) {
+        claw_text_status();
+        return 0;
+    }
+    if (strcmp(sub, "dump") == 0) {
+        int n = claw_text_dump();
+        if (n > 0) {
+            printf("edit them, then run 'claw text reload' or /reload in a session\n");
+        }
+        return 0;
+    }
+    if (strcmp(sub, "reload") == 0) {
+        claw_text_reload();
+        claw_text_status();
+        return 0;
+    }
+    printf("usage: claw text <status|dump|reload>\n");
+    return 1;
+}
 
 static int cmd_stats(void);
 static int cmd_memory(int argc, char **argv)
@@ -81,6 +107,7 @@ static int cmd_memory(int argc, char **argv)
 }
 
 static int cmd_skills(int argc, char **argv);
+static int cmd_text(int argc, char **argv);
 static int cmd_memory(int argc, char **argv);
 
 static void print_usage(void)
@@ -92,6 +119,7 @@ static void print_usage(void)
     printf("  claw models                  list suggested models\n");
     printf("  claw backend [<name>]        show or switch provider\n");
     printf("  claw memory <list|show|rm>   what claw remembers about you\n");
+    printf("  claw text <status|dump|reload>  override prompt and tool text on SD\n");
     printf("  claw skills [rm <name>]      scripts the model has saved\n");
     printf("  claw session <new|list|show|rm>\n");
     printf("  claw config show             list settings\n");
@@ -325,6 +353,9 @@ static int cmd_repl(void)
             } else if (strcmp(line, "/stats") == 0) {
                 cmd_stats();
                 printf("\n");
+            } else if (strcmp(line, "/reload") == 0) {
+                claw_text_reload();
+                printf("reloaded text overrides\n\n");
             } else if (strcmp(line, "/memory") == 0) {
                 claw_memory_list();
                 printf("\n");
@@ -343,6 +374,7 @@ static int cmd_repl(void)
                 printf("  /show     print this session\n");
                 printf("  /skills   list saved skills\n");
                 printf("  /memory   list what claw remembers\n");
+                printf("  /reload   re-read prompt and tool text from SD\n");
                 printf("  /stats    status and memory\n");
                 printf("  /verbose  toggle transport statistics\n");
                 printf("  exit      leave\n\n");
@@ -634,6 +666,9 @@ int cmd_claw(int argc, char **argv)
     }
     if (strcmp(sub, "memory") == 0) {
         return cmd_memory(rest_argc, rest_argv);
+    }
+    if (strcmp(sub, "text") == 0) {
+        return cmd_text(rest_argc, rest_argv);
     }
     if (strcmp(sub, "skills") == 0) {
         return cmd_skills(rest_argc, rest_argv);

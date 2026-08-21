@@ -92,7 +92,7 @@ static void add_tools(cJSON *body)
             continue;
         }
         cJSON_AddStringToObject(fn, "name", t->name);
-        cJSON_AddStringToObject(fn, "description", t->description);
+        cJSON_AddStringToObject(fn, "description", claw_tool_description(t));
         cJSON *schema = t->schema();
         if (schema) {
             cJSON_AddItemToObject(fn, "parameters", schema);

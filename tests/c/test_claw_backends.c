@@ -82,6 +82,10 @@ static const claw_tool_t k_tool = {
 };
 
 size_t claw_tools_count(void) { return 1; }
+
+/* The real one consults the SD override; on the host there is none, so the
+ * compiled description is what the backends should receive. */
+const char *claw_tool_description(const claw_tool_t *t) { return t->description; }
 const claw_tool_t *claw_tools_at(size_t i) { return i == 0 ? &k_tool : NULL; }
 
 /* --------------------------------------------------------------- harness -- */

@@ -24,6 +24,17 @@ $CC -std=c11 -Wall -Wextra -Werror \
 
 echo ""
 if [ -f "$CJSON/cJSON.c" ]; then
+    echo "=== text overrides ==="
+    # TEXT_DIR_SD points at a scratch dir: macOS will not allow creating /sd,
+    # and the end-to-end path is worth covering rather than skipping.
+    $CC -std=c11 -Wall -Wextra -Werror -I"$SRC" -I tests/c/stub -I "$CJSON" \
+        -DTEXT_DIR_SD="\"$OUT/claw\"" \
+        tests/c/test_claw_text.c "$SRC/claw_text.c" "$SRC/claw_util.c" \
+        "$CJSON/cJSON.c" -o "$OUT/text"
+    "$OUT/text"
+
+    echo ""
+
     echo "=== backend request bodies ==="
     $CC -std=c11 -Wall -Wextra -I"$SRC" -I tests/c/stub -I "$CJSON" \
         tests/c/test_claw_backends.c \
