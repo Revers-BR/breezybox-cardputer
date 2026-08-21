@@ -518,11 +518,36 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
             call_args = cJSON_CreateObject();
         }
 
+        /*
+         * Copy the call out and release the streaming context before running
+         * the tool.
+         *
+         * stream_ctx_t carries a 16 KB argument accumulator that is only needed
+         * while a response is streaming. Holding it during dispatch left a tool
+         * unable to get a large contiguous block -- which is why a Lua script
+         * could not enter graphics mode from the agent while the same script
+         * runs fine from the shell. The parsed arguments are all that is needed
+         * from here.
+         */
+        char call_name[sizeof(sctx->acc.name)];
+        char call_id[sizeof(sctx->acc.id)];
+        snprintf(call_name, sizeof(call_name), "%s", sctx->acc.name);
+        snprintf(call_id, sizeof(call_id), "%s", sctx->acc.id);
+
+        char *saved_reply = NULL;
+        if (reply && reply[0]) {
+            saved_reply = strdup(reply);   /* narration so far, if any */
+        }
+        free(sctxp);
+        sctxp = NULL;
+        sctx = NULL;
+
         if (!tool_out) {
             tool_out = malloc(CLAW_TOOL_RESULT_MAX);
             if (!tool_out) {
                 snprintf(res->error, sizeof(res->error), "out of memory for tool output");
                 cJSON_Delete(call_args);
+                free(saved_reply);
                 rc = 1;
                 break;
             }
@@ -536,28 +561,33 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
          * lines look identical -- and a model correcting its own mistake got
          * stopped for repeating itself. FNV-1a over the full arguments.
          */
+        char *argstr = cJSON_PrintUnformatted(call_args);
         uint32_t hash = 2166136261u;
-        for (const char *c = sctx->acc.json; *c; c++) {
+        for (const char *c = argstr ? argstr : ""; *c; c++) {
             hash = (hash ^ (uint8_t)*c) * 16777619u;
         }
+        if (argstr) {
+            cJSON_free(argstr);
+        }
         if (have_last && hash == last_hash &&
-            strcmp(sctx->acc.name, last_name) == 0) {
+            strcmp(call_name, last_name) == 0) {
             printf("\n[stopped: %s called twice with the same arguments]\n",
-                   sctx->acc.name);
+                   call_name);
             snprintf(res->error, sizeof(res->error),
                      "the model repeated the same %s call; its result was probably "
-                     "not reaching it", sctx->acc.name);
+                     "not reaching it", call_name);
             cJSON_Delete(call_args);
+            free(saved_reply);
             rc = 1;
             break;
         }
-        snprintf(last_name, sizeof(last_name), "%s", sctx->acc.name);
+        snprintf(last_name, sizeof(last_name), "%s", call_name);
         last_hash = hash;
         have_last = true;
 
-        printf("\n[tool: %s  (%d/%d)]\n", sctx->acc.name,
+        printf("\n[tool: %s  (%d/%d)]\n", call_name,
                round + 1, CLAW_MAX_TOOL_ROUNDS);
-        bool tool_ok = claw_tools_run(sctx->acc.name, call_args, tool_out,
+        bool tool_ok = claw_tools_run(call_name, call_args, tool_out,
                                       CLAW_TOOL_RESULT_MAX);
         /*
          * Show the first line of a failure even without -v. Several rounds of
@@ -593,10 +623,24 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         }
 
         if (backend->append_tool_result) {
-            backend->append_tool_result(messages, sctx->acc.name, sctx->acc.id,
+            backend->append_tool_result(messages, call_name, call_id,
                                         call_args, tool_out);
         }
         cJSON_Delete(call_args);
+
+        /* Re-create the context for the next round, restoring any narration. */
+        sctxp = calloc(1, sizeof(*sctxp));
+        if (!sctxp) {
+            free(saved_reply);
+            snprintf(res->error, sizeof(res->error),
+                     "out of memory continuing after %s", call_name);
+            rc = 1;
+            break;
+        }
+        if (saved_reply) {
+            snprintf(reply, CLAW_TURN_MAX + 1, "%s", saved_reply);
+            free(saved_reply);
+        }
 
         if (round == CLAW_MAX_TOOL_ROUNDS - 1) {
             /*
@@ -627,7 +671,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         claw_session_append("assistant", reply);
     }
 
-    free(sctxp);
+    free(sctxp);          /* NULL on the paths that released it early */
     free(ca_pem);
     free(reply);
     free(tool_out);
