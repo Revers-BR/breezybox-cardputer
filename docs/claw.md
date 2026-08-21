@@ -78,17 +78,22 @@ claw ask "how much free memory is there?"
 claw ask -v "list the sd card"       # -v adds heap and transport statistics
 ```
 
+Other subcommands: `claw session`, `claw skills`, `claw memory`, `claw text`,
+`claw model`, `claw backend`, `claw config`, `claw stats`. Each is covered
+below; `claw help` lists them.
+
 In a session, `/` commands control the agent and everything else is a question:
 
 | Command | Does |
 |---|---|
 | `/model`, `/model <name>` | show or change the model |
 | `/models` | list models from the catalogue |
-| `/backend <name>` | switch provider |
+| `/backend`, `/backend <name>` | show or switch provider |
 | `/new` | start a fresh session |
 | `/show` | print the current transcript |
 | `/skills` | list saved Lua skills |
 | `/memory` | list what claw remembers |
+| `/reload` | re-read the prompt and tool text from SD |
 | `/stats` | status and memory |
 | `/verbose` | toggle transport statistics |
 | `/help` | this list |
@@ -403,6 +408,19 @@ used, so nothing is lost when switching.
 
 Models are stored per backend, so switching providers cannot leave a Gemini
 model pointed at OpenAI.
+
+## Choosing a model
+
+```sh
+claw models                  # list the catalogue, marking the current model
+claw model                   # show the current backend and model
+claw model gemini-2.5-pro    # change it
+claw backend openai          # switch provider
+```
+
+The same as `/models`, `/model` and `/backend` inside a session. The model is
+stored per backend, so switching provider cannot leave a Gemini model pointed at
+OpenAI.
 
 ## The model catalogue
 

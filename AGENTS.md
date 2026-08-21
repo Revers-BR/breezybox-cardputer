@@ -119,11 +119,17 @@ Where things live:
   - `claw_models.c` model catalogue, read from JSON not compiled in
   - `claw_session.c` JSONL transcripts, replayed under a byte budget
   - `claw_sse.c` incremental SSE parser, fixed buffers
+  - `claw_text.c` model-facing text, overridable from SD with format-specifier
+    validation (see the constraints below)
+  - `claw_util.c` shared small-file reader
   - `claw_tools.c` capability registry, path confinement, destructive-action guard
 - `breezybox-cardputer/cmd/claw.c` the `claw` console command and REPL
 - `breezybox-cardputer/cmd/lua_https.c` `breezy.https` binding (Lua-side TLS)
 - `packages/espclaw/root/apps/espclaw/` data staged into the firmware image:
   `ca/gts_root_r1.pem`, `models.json`, `lua_api.md`
+- `tools/gen_claw_text.py` regenerates the shipped default text
+  (`prompt.md`, `tools.json`, `messages.json`) from the sources. Run it after
+  changing any prompt, tool description or failure message in C.
 - `tools/gen_lua_api.py` regenerates `lua_api.md` from the bindings in
   `cmd/lua.c` and `cmd/lua_led.c`, and folds in the usage block from
   `docs/lua.md`. Run it after changing any Lua binding or that block. The
