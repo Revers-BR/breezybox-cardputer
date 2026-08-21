@@ -42,7 +42,7 @@ HINTS = {
     "network.is_connected": "() -> boolean",
     "network.http_get":   "(url) -> {status=, body=}  -- http:// only",
     "https.request":      "{url=, method=, headers=, body=, body_file=, on_chunk=, on_status=, timeout_ms=} -> status, bytes[, body]  -- or just a URL string; without on_chunk the body is returned",
-    "gfx.mode":           '("text"|"150p"|"vga13h")  -- pixel modes need a large contiguous framebuffer and can fail; use breezy.tui for text',
+    "gfx.mode":           '("text"|"150p"|"vga13h")  -- pixel modes allocate a framebuffer; call mode("text") when finished',
     "sound.tone":         "(hz, ms)",
     "i2c.scan":           "() -> table of addresses",
     "pin.mode":           '(gpio, "in"|"out")',

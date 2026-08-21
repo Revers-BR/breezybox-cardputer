@@ -89,7 +89,7 @@ print(breezy.config.get("theme"))
 
 ## breezy.gfx
 
-- `breezy.gfx.mode("text"|"150p"|"vga13h")  -- pixel modes need a large contiguous framebuffer and can fail; use breezy.tui for text`
+- `breezy.gfx.mode("text"|"150p"|"vga13h")  -- pixel modes allocate a framebuffer; call mode("text") when finished`
 - `breezy.gfx.get_mode()`
 - `breezy.gfx.font()`
 - `breezy.gfx.size()`

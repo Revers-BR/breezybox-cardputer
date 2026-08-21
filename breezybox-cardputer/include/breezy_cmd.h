@@ -64,6 +64,9 @@ const struct luaL_Reg *breezy_lua_led_lib(void);
  * by iterating the table. */
 const char *const *breezy_module_names(size_t *count);
 
+/* NULL when `code` compiles, otherwise a description of the syntax error. */
+const char *breezy_lua_check_syntax(const char *code);
+
 #if !defined(BREEZY_SLIM)
 int cmd_ssh(int argc, char **argv);
 int cmd_sshcfg(int argc, char **argv);

@@ -2,6 +2,7 @@
 #include "claw_util.h"
 #include "claw_config.h"
 #include "claw_memory.h"
+#include "breezy_cmd.h"
 #include "breezy_exec.h"
 
 #include "driver/gpio.h"
@@ -218,6 +219,26 @@ static bool write_file_run(const cJSON *args, char *out, size_t out_len)
                  path, (unsigned)wrote, (unsigned)len);
         return false;
     }
+    /*
+     * Saving a .lua file that does not even parse is worth flagging. The model
+     * sometimes writes a script straight to disk without running it, and a
+     * syntax error found now costs one line of output instead of a puzzled
+     * user running it later.
+     *
+     * Only syntax is checked: running it is run_lua's job, and plenty of valid
+     * scripts should not be executed as a side effect of being saved.
+     */
+    const char *dot = strrchr(path, '.');
+    if (dot && strcmp(dot, ".lua") == 0) {
+        const char *err = breezy_lua_check_syntax(content);
+        if (err) {
+            snprintf(out, out_len,
+                     "wrote %u bytes to %s, but it is not valid Lua: %s\n"
+                     "Fix it and save again.", (unsigned)wrote, path, err);
+            return true;
+        }
+    }
+
     snprintf(out, out_len, "wrote %u bytes to %s", (unsigned)wrote, path);
     return true;
 }

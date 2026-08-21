@@ -213,6 +213,30 @@ static void suggest_breezy_field(lua_State *L, const char *msg)
     lua_pop(L, 3);
 }
 
+/*
+ * Compile a chunk without running it.
+ *
+ * Returns NULL when it parses, or a static message describing the syntax
+ * error. Used by the agent's write_file so a saved script that cannot even
+ * compile is reported at the point it is written.
+ */
+const char *breezy_lua_check_syntax(const char *code)
+{
+    static char msg[160];
+    lua_State *L = luaL_newstate();
+    if (!L) {
+        return NULL;                     /* cannot check; do not claim a fault */
+    }
+    const char *result = NULL;
+    if (luaL_loadbuffer(L, code, strlen(code), "=check") != LUA_OK) {
+        const char *e = lua_tostring(L, -1);
+        snprintf(msg, sizeof(msg), "%s", e ? e : "syntax error");
+        result = msg;
+    }
+    lua_close(L);
+    return result;
+}
+
 static void print_lua_error(lua_State *L, const char *prefix)
 {
     const char *msg = lua_tostring(L, -1);
