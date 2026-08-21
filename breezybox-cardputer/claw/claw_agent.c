@@ -6,6 +6,7 @@
 #include "claw_session.h"
 #include "claw_sse.h"
 #include "claw_tools.h"
+#include "claw_util.h"
 
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
@@ -182,7 +183,8 @@ static bool write_body(const char *json, char *path_out, size_t path_len)
  */
 static int claw_round(const claw_backend_t *backend, const cJSON *messages,
                       const char *api_key, bool verbose,
-                      claw_result_t *res, stream_ctx_t *sctx)
+                      claw_result_t *res, stream_ctx_t *sctx,
+                      const char *ca_pem)
 {
     cJSON *body = backend->build_body(messages);
     if (!body) {
@@ -212,27 +214,6 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     char url[256];
     backend->endpoint(url, sizeof(url));
 
-    char ca_path[128];
-    resolve_ca(backend, ca_path, sizeof(ca_path));
-
-    char *ca_pem = NULL;
-    if (ca_path[0]) {
-        FILE *cf = fopen(ca_path, "rb");
-        if (cf) {
-            fseek(cf, 0, SEEK_END);
-            long n = ftell(cf);
-            fseek(cf, 0, SEEK_SET);
-            if (n > 0 && n < 8192) {
-                ca_pem = malloc((size_t)n + 1);
-                if (ca_pem) {
-                    size_t got = fread(ca_pem, 1, (size_t)n, cf);
-                    ca_pem[got] = '\0';
-                }
-            }
-            fclose(cf);
-        }
-    }
-
     esp_http_client_config_t cfg = {
         .url                   = url,
         .method                = HTTP_METHOD_POST,
@@ -246,18 +227,16 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) {
-        free(ca_pem);
         snprintf(res->error, sizeof(res->error), "http client init failed");
         return 1;
     }
     backend->headers(client, api_key);
 
-    /* On the heap: the parser carries an 8 KB payload buffer, which the
+    /* On the heap: the parser carries a 16 KB payload buffer, which the
      * console task's stack cannot spare. */
     claw_sse_t *parser = calloc(1, sizeof(*parser));
     if (!parser) {
-        esp_http_client_cleanup(client);
-        free(ca_pem);
+        esp_http_client_cleanup(client);   /* ca_pem belongs to the caller */
         snprintf(res->error, sizeof(res->error), "out of memory for the stream parser");
         return 1;
     }
@@ -364,7 +343,6 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
 done:
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
-    free(ca_pem);
     if (parser->truncated) {
         /* Truncation means an event was dropped, so the turn is incomplete.
          * Say so rather than leaving the user with "(no text in response)". */
@@ -464,6 +442,12 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     }
     int64_t t0 = esp_timer_get_time();
 
+    /* Read the pinned CA once, not once per tool round: it is a 2 KB SD read
+     * for a file that does not change, and a request can take eight rounds. */
+    char ca_path[128];
+    resolve_ca(backend, ca_path, sizeof(ca_path));
+    char *ca_pem = ca_path[0] ? claw_read_file(ca_path, 8192, NULL) : NULL;
+
     char *reply = calloc(1, CLAW_TURN_MAX + 1);
     if (!reply) {
         ESP_LOGW(TAG, "no memory for reply buffer; this turn will not be saved");
@@ -484,6 +468,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
      * console task's 16 KB stack cannot spare. */
     stream_ctx_t *sctxp = calloc(1, sizeof(*sctxp));
     if (!sctxp) {
+        free(ca_pem);
         free(reply);
         cJSON_Delete(messages);
         snprintf(res->error, sizeof(res->error), "out of memory starting the request");
@@ -501,7 +486,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         sctxp->reply_len = reply ? strlen(reply) : 0;
         stream_ctx_t *sctx = sctxp;
 
-        rc = claw_round(backend, messages, api_key, verbose, res, sctx);
+        rc = claw_round(backend, messages, api_key, verbose, res, sctx, ca_pem);
 
         if (rc != 0 || !sctx->has_call) {
             break;
@@ -635,6 +620,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     }
 
     free(sctxp);
+    free(ca_pem);
     free(reply);
     free(tool_out);
     cJSON_Delete(messages);

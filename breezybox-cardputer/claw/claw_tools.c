@@ -1,4 +1,5 @@
 #include "claw_tools.h"
+#include "claw_util.h"
 #include "claw_config.h"
 #include "claw_memory.h"
 #include "breezy_exec.h"
@@ -586,29 +587,13 @@ static cJSON *lua_api_schema(void)
 static char *lua_api_slurp(const char **path_out)
 {
     for (size_t i = 0; i < sizeof(k_api_paths) / sizeof(k_api_paths[0]); i++) {
-        FILE *f = fopen(k_api_paths[i], "rb");
-        if (!f) {
-            continue;
+        char *buf = claw_read_file(k_api_paths[i], 32768, NULL);
+        if (buf) {
+            if (path_out) {
+                *path_out = k_api_paths[i];
+            }
+            return buf;
         }
-        fseek(f, 0, SEEK_END);
-        long len = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        if (len <= 0 || len > 32768) {
-            fclose(f);
-            continue;
-        }
-        char *buf = malloc((size_t)len + 1);
-        if (!buf) {
-            fclose(f);
-            return NULL;
-        }
-        size_t got = fread(buf, 1, (size_t)len, f);
-        fclose(f);
-        buf[got] = '\0';
-        if (path_out) {
-            *path_out = k_api_paths[i];
-        }
-        return buf;
     }
     return NULL;
 }

@@ -1,4 +1,5 @@
 #include "claw_models.h"
+#include "claw_util.h"
 
 #include "esp_log.h"
 
@@ -86,26 +87,10 @@ const char *claw_models_path(void)
 static cJSON *load_root(void)
 {
     const char *path = claw_models_path();
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        return NULL;
-    }
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (len <= 0 || len > 8192) {
-        fclose(f);
-        return NULL;
-    }
-    char *buf = malloc((size_t)len + 1);
+    char *buf = claw_read_file(path, 8192, NULL);
     if (!buf) {
-        fclose(f);
         return NULL;
     }
-    size_t got = fread(buf, 1, (size_t)len, f);
-    fclose(f);
-    buf[got] = '\0';
-
     cJSON *root = cJSON_Parse(buf);
     free(buf);
     if (!root) {

@@ -60,6 +60,7 @@ idf_component_register(
         "claw/claw_session.c"
         "claw/claw_sse.c"
         "claw/claw_tools.c"
+        "claw/claw_util.c"
         "cmd/lua_https.c"
         "cmd/lua_led.c"
         "third_party/lua/onelua.c"
