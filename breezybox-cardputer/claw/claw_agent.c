@@ -81,6 +81,24 @@ static bool network_ready(void)
     return esp_netif_get_ip_info(n, &ip) == ESP_OK && ip.ip.addr != 0;
 }
 
+/*
+ * Describe the network for an error message.
+ *
+ * "request write failed" with an association but a dead route looks identical
+ * to a dozen other faults. Printing the address and gateway separates "no
+ * lease" from "lease but nothing behind it", which need different fixes.
+ */
+static void network_detail(char *out, size_t out_len)
+{
+    esp_netif_t *n = esp_netif_get_default_netif();
+    esp_netif_ip_info_t ip = {0};
+    if (!n || esp_netif_get_ip_info(n, &ip) != ESP_OK || ip.ip.addr == 0) {
+        snprintf(out, out_len, "no IP address");
+        return;
+    }
+    snprintf(out, out_len, "ip " IPSTR ", gw " IPSTR, IP2STR(&ip.ip), IP2STR(&ip.gw));
+}
+
 static bool path_exists(const char *p)
 {
     struct stat st;
@@ -263,13 +281,10 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
 
     int rc = 1;
     if (esp_http_client_open(client, body_len) != ESP_OK) {
-        snprintf(res->error, sizeof(res->error), "%s",
-                 network_ready()
-                     ? claw_text("agent.write_body.connect_open_failed",
-                                 "connect/open failed")
-                     : claw_text("agent.write_body.network_lost_connecting",
-                                 "lost the network while connecting; check "
-                                 "'wifi status' and try again"));
+        char net[64];
+        network_detail(net, sizeof(net));
+        snprintf(res->error, sizeof(res->error),
+                 "could not reach %.60s (%s)", url, net);
         goto done;
     }
 
@@ -292,15 +307,11 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
         }
         fclose(bf);
         if (!ok) {
-            /* The usual cause is the WiFi dropping mid-request, and "write
-             * failed" does not say so. */
-            snprintf(res->error, sizeof(res->error), "%s",
-                     network_ready()
-                         ? claw_text("agent.write_body.request_write_failed",
-                                     "request write failed")
-                         : claw_text("agent.write_body.network_lost",
-                                     "lost the network while sending; check "
-                                     "'wifi status' and try again"));
+            char net[64];
+            network_detail(net, sizeof(net));
+            snprintf(res->error, sizeof(res->error),
+                     "could not send the request (%s) -- WiFi dropped, or "
+                     "associated with no route. Try 'ping 8.8.8.8'", net);
             goto done;
         }
     }
