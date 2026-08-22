@@ -439,6 +439,36 @@ The first entry for a backend is its default. Any model name is accepted
 whether or not it is listed; the catalogue is a convenience, not a whitelist.
 It is seeded from the shipped copy on first run.
 
+## Graphics and the agent share memory
+
+A pixel mode needs one contiguous 36 KB framebuffer, and so does the agent for
+its stream parser and request serialisation. On a board with no PSRAM there is
+one such block, so they take turns.
+
+The framebuffer is reserved at boot, while the heap is still whole. `claw`
+releases it on entry and takes it back on exit, so both work in a single
+session:
+
+```sh
+claw ask "..."                    # the agent has the block
+lua /sd/claw/skills/rainbow.lua   # graphics has it back
+```
+
+Reclaiming can fail, because the network stack retains a few hundred bytes per
+request and that is enough to stop 36 KB coalescing. ESP-IDF cannot compact a
+heap, so there is no fix beyond rebooting. `claw` says so on exit when it
+happens:
+
+```
+note: the graphics framebuffer could not be reclaimed (largest block 31744
+      of 36000 needed).
+      Reboot before running a graphics script.
+```
+
+In practice: run graphics scripts before a long agent session, or reboot
+between. Writing a graphics script with the agent and then running it is the
+awkward case, and a reboot is the honest answer.
+
 ## Memory budget
 
 The `cardputer-claw` profile exists because a TLS handshake needs contiguous

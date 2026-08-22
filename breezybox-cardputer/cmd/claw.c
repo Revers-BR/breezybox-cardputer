@@ -640,9 +640,26 @@ int cmd_claw(int argc, char **argv)
      */
     rgb_display_release_gfx();
     int rc = cmd_claw_run(argc, argv);
+
+    /*
+     * Drop everything cached before trying to take the buffer back: a few KB
+     * held in the middle of the region is enough to stop 36 KB coalescing.
+     * This is not defragmentation -- ESP-IDF cannot compact a heap -- it just
+     * improves the odds.
+     */
+    claw_text_reload();
+
     if (!rgb_display_reserve_gfx()) {
-        /* Only worth mentioning if someone then tries to draw. */
-        ESP_LOGD("claw", "graphics framebuffer not reclaimed; reboot to restore");
+        /*
+         * Say so now. The alternative is the user discovering it later, from a
+         * graphics script that fails for reasons that look unrelated to having
+         * run the agent.
+         */
+        const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        printf("note: the graphics framebuffer could not be reclaimed "
+               "(largest block %u of 36000 needed).\n"
+               "      Reboot before running a graphics script.\n",
+               (unsigned)heap_caps_get_largest_free_block(caps));
     }
     return rc;
 }
