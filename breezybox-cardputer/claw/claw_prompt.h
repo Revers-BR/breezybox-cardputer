@@ -16,7 +16,9 @@
 
 #include <stddef.h>
 
-#define CLAW_PROMPT_MAX 2560
+/* Device prompt + the runtime command list + whatever the user appended in
+ * /sd/claw/system.md. */
+#define CLAW_PROMPT_MAX 3072
 
 /* Write the system prompt. Returns the length written. */
 size_t claw_prompt_build(char *out, size_t out_len);
