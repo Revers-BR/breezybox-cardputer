@@ -21,7 +21,10 @@
 
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
+#include "rgb_display.h"
 #include "linenoise/linenoise.h"
+
+#include "esp_log.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -63,6 +66,7 @@ static int cmd_text(int argc, char **argv)
 }
 
 static int cmd_stats(void);
+static int cmd_claw_run(int argc, char **argv);
 static int cmd_memory(int argc, char **argv)
 {
     const char *sub = (argc > 0) ? argv[0] : "list";
@@ -626,6 +630,24 @@ static int cmd_stats(void)
 }
 
 int cmd_claw(int argc, char **argv)
+{
+    /*
+     * Borrow the graphics framebuffer while we run.
+     *
+     * It is reserved at boot so a pixel mode is possible at all, but 36 KB of
+     * contiguous heap is also the difference between the agent working and
+     * failing to serialise a request. Give it back on the way out.
+     */
+    rgb_display_release_gfx();
+    int rc = cmd_claw_run(argc, argv);
+    if (!rgb_display_reserve_gfx()) {
+        /* Only worth mentioning if someone then tries to draw. */
+        ESP_LOGD("claw", "graphics framebuffer not reclaimed; reboot to restore");
+    }
+    return rc;
+}
+
+static int cmd_claw_run(int argc, char **argv)
 {
     if (argc < 2) {
         return cmd_repl();

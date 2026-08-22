@@ -1,4 +1,6 @@
 #pragma once
+
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifndef DISPLAY_COLS
@@ -92,6 +94,11 @@ void rgb_display_set_vga_palette_entry(int index, uint16_t rgb565);
 uint16_t rgb_display_get_vga_palette_entry(int index);
 void rgb_display_set_backlight(uint8_t level);
 uint8_t rgb_display_get_backlight(void);
+
+/* Release the reserved graphics framebuffer (text mode only), and take it back.
+ * Lets a memory-hungry command borrow 36 KB of contiguous heap. */
+void rgb_display_release_gfx(void);
+bool rgb_display_reserve_gfx(void);
 
 // VSYNC synchronization (only used in graphics modes)
 // Block until next vertical blank
