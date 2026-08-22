@@ -218,19 +218,44 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
         backend->add_tools(body);
     }
 
-    char *json = cJSON_PrintUnformatted(body);
+    /*
+     * Print into the parser's buffer rather than allocating another one.
+     *
+     * The request body is the third large contiguous block a round needs,
+     * after the parser and the streaming context, and asking for it once the
+     * Lua interpreter has been through the heap is what fails. The parser is
+     * idle here -- it is only used to read the response, which has not been
+     * sent for yet -- so its 16 KB is free scratch that is already contiguous
+     * and already ours.
+     */
+    char *json = NULL;
+    bool owned = false;
+    if (cJSON_PrintPreallocated(body, parser->data, CLAW_SSE_MAX_DATA, false)) {
+        json = parser->data;
+    } else {
+        /* Bigger than the scratch buffer: fall back to allocating, which may
+         * well work when the heap is fresh. */
+        json = cJSON_PrintUnformatted(body);
+        owned = true;
+    }
     cJSON_Delete(body);
     if (!json) {
+        const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
         snprintf(res->error, sizeof(res->error),
-                 claw_text("agent.write_body.out_memory_serialising",
-                           "out of memory serialising request"));
+                 "request too large to serialise (largest block %u). Try "
+                 "/new, or lower context_budget.",
+                 (unsigned)heap_caps_get_largest_free_block(caps));
         return 1;
     }
 
     char req_path[64];
     bool staged = write_body(json, req_path, sizeof(req_path));
     int body_len = (int)strlen(json);
-    cJSON_free(json);
+    if (owned) {
+        cJSON_free(json);
+    }
+    /* Leave no request bytes behind in the buffer the response will parse. */
+    parser->data[0] = '\0';
     if (!staged) {
         snprintf(res->error, sizeof(res->error),
                  claw_text("agent.write_body.cannot_write_request",
