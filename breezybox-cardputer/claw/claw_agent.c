@@ -205,7 +205,7 @@ static bool write_body(const char *json, char *path_out, size_t path_len)
 static int claw_round(const claw_backend_t *backend, const cJSON *messages,
                       const char *api_key, bool verbose,
                       claw_result_t *res, stream_ctx_t *sctx,
-                      const char *ca_pem)
+                      const char *ca_pem, claw_sse_t *parser)
 {
     cJSON *body = backend->build_body(messages);
     if (!body) {
@@ -261,22 +261,7 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     }
     backend->headers(client, api_key);
 
-    /* On the heap: the parser carries a 16 KB payload buffer, which the
-     * console task's stack cannot spare. */
-    claw_sse_t *parser = calloc(1, sizeof(*parser));
-    if (!parser) {
-        esp_http_client_cleanup(client);   /* ca_pem belongs to the caller */
-        /* Say what is actually short. Total free is usually fine here; what
-         * runs out is a single contiguous block. */
-        const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-        snprintf(res->error, sizeof(res->error),
-                 "could not allocate the %u byte stream parser "
-                 "(free %u, largest block %u)",
-                 (unsigned)sizeof(*parser),
-                 (unsigned)heap_caps_get_free_size(caps),
-                 (unsigned)heap_caps_get_largest_free_block(caps));
-        return 1;
-    }
+    /* Allocated once per request by the caller: see the note there. */
     claw_sse_init(parser, on_sse_event, sctx);
 
     int rc = 1;
@@ -415,7 +400,6 @@ done:
             rc = 1;
         }
     }
-    free(parser);
     (void)verbose;
     return rc;
 }
@@ -536,8 +520,35 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
 
     /* Heap, not stack: this carries an 8 KB tool-argument buffer, which the
      * console task's 16 KB stack cannot spare. */
+    /*
+     * Allocate the two large buffers once and hold them for the whole request.
+     *
+     * They were allocated per round, and freed around each tool call to leave
+     * room for it. That failed: run_lua loads the Lua interpreter, and after it
+     * the heap is too fragmented to get 18.5 KB back -- "could not allocate the
+     * stream parser" partway through a working conversation. Holding them costs
+     * a tool some memory but cannot fail mid-loop, which is the better trade:
+     * a tool that is short of memory says so and the model adapts, whereas a
+     * failed parser allocation ends the whole request.
+     */
+    claw_sse_t *parser = calloc(1, sizeof(*parser));
+    if (!parser) {
+        const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        free(ca_pem);
+        free(reply);
+        cJSON_Delete(messages);
+        snprintf(res->error, sizeof(res->error),
+                 "could not allocate the %u byte stream parser "
+                 "(free %u, largest block %u)",
+                 (unsigned)sizeof(*parser),
+                 (unsigned)heap_caps_get_free_size(caps),
+                 (unsigned)heap_caps_get_largest_free_block(caps));
+        return 1;
+    }
+
     stream_ctx_t *sctxp = calloc(1, sizeof(*sctxp));
     if (!sctxp) {
+        free(parser);
         free(ca_pem);
         free(reply);
         cJSON_Delete(messages);
@@ -558,7 +569,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         sctxp->reply_len = reply ? strlen(reply) : 0;
         stream_ctx_t *sctx = sctxp;
 
-        rc = claw_round(backend, messages, api_key, verbose, res, sctx, ca_pem);
+        rc = claw_round(backend, messages, api_key, verbose, res, sctx, ca_pem, parser);
 
         if (rc != 0 || !sctx->has_call) {
             break;
@@ -598,13 +609,6 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         snprintf(call_name, sizeof(call_name), "%s", sctx->acc.name);
         snprintf(call_id, sizeof(call_id), "%s", sctx->acc.id);
 
-        char *saved_reply = NULL;
-        if (reply && reply[0]) {
-            saved_reply = strdup(reply);   /* narration so far, if any */
-        }
-        free(sctxp);
-        sctxp = NULL;
-        sctx = NULL;
 
         if (!tool_out) {
             tool_out = malloc(CLAW_TOOL_RESULT_MAX);
@@ -613,8 +617,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
                          claw_text("agent.agent_ask.out_memory_tool",
                                    "out of memory for tool output"));
                 cJSON_Delete(call_args);
-                free(saved_reply);
-                rc = 1;
+                    rc = 1;
                 break;
             }
         }
@@ -643,7 +646,6 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
                      "the model repeated the same %s call; its result was probably "
                      "not reaching it", call_name);
             cJSON_Delete(call_args);
-            free(saved_reply);
             rc = 1;
             break;
         }
@@ -694,20 +696,6 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         }
         cJSON_Delete(call_args);
 
-        /* Re-create the context for the next round, restoring any narration. */
-        sctxp = calloc(1, sizeof(*sctxp));
-        if (!sctxp) {
-            free(saved_reply);
-            snprintf(res->error, sizeof(res->error),
-                     "out of memory continuing after %s", call_name);
-            rc = 1;
-            break;
-        }
-        if (saved_reply) {
-            snprintf(reply, CLAW_TURN_MAX + 1, "%s", saved_reply);
-            free(saved_reply);
-        }
-
         if (round == CLAW_MAX_TOOL_ROUNDS - 1) {
             /*
              * Ending here means the model never produced an answer, so say why
@@ -741,7 +729,8 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         claw_session_rollback(session_mark);
     }
 
-    free(sctxp);          /* NULL on the paths that released it early */
+    free(sctxp);
+    free(parser);
     free(ca_pem);
     free(reply);
     free(tool_out);
