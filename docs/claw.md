@@ -382,6 +382,25 @@ claw session new
 claw session rm <id>
 ```
 
+### Requests grow with each tool call
+
+`context_budget` bounds the transcript replayed at the *start* of a request, but
+a tool round appends the call and its result to that same request, so it grows
+as the model works. Eight rounds with 2 KB results adds roughly 20 KB on top of
+the starting size.
+
+A large request takes the provider longer to answer, and can exceed the 60 s
+timeout:
+
+```
+claw: no reply within 60 s to a 27431 byte request. It grows with each tool
+      call -- try /new, or a lower context_budget.
+```
+
+`claw ask -v` prints the request size before each tool call, so growth is
+visible. If it becomes a problem: `/new`, lower `context_budget`, or raise
+`timeout_ms`.
+
 ## Settings
 
 `claw config show` lists everything. Settings live in `/sd/claw/config.json`

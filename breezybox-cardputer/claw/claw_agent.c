@@ -251,6 +251,7 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     char req_path[64];
     bool staged = write_body(json, req_path, sizeof(req_path));
     int body_len = (int)strlen(json);
+    res->bytes_sent = (size_t)body_len;
     if (owned) {
         cJSON_free(json);
     }
@@ -333,9 +334,13 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     }
 
     if (esp_http_client_fetch_headers(client) < 0) {
+        /* Almost always the read timeout expiring with no reply. The request
+         * size matters here: it grows with every tool round, and a large one
+         * takes the provider longer to answer. */
         snprintf(res->error, sizeof(res->error),
-                 claw_text("agent.write_body.fetch_headers_failed",
-                           "fetch headers failed"));
+                 "no reply within %d s to a %d byte request. It grows with "
+                 "each tool call -- try /new, or a lower context_budget.",
+                 claw_config_get_int("timeout_ms", 60000) / 1000, body_len);
         goto done;
     }
     res->status = esp_http_client_get_status_code(client);
@@ -680,6 +685,9 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
 
         printf("\n[tool: %s  (%d/%d)]\n", call_name,
                round + 1, CLAW_MAX_TOOL_ROUNDS);
+        if (verbose) {
+            printf("  request was %u bytes\n", (unsigned)res->bytes_sent);
+        }
         bool tool_ok = claw_tools_run(call_name, call_args, tool_out,
                                       CLAW_TOOL_RESULT_MAX);
         /*

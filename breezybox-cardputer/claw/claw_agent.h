@@ -17,6 +17,7 @@ typedef struct {
     size_t chunks;
     size_t events;
     size_t bytes;
+    size_t bytes_sent;    /* request size; grows with each tool round */
     unsigned elapsed_ms;
     int    turns;         /* turns replayed into the request */
     unsigned tool_calls;  /* tools executed while answering */
