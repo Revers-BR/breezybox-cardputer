@@ -103,6 +103,14 @@ Phase 3 (multi-turn replay) and Phase 4 (tool schemas, tool results) both grow
 the Lua heap and the request body. There is no headroom for either. The
 remaining Lua-independent levers have been used up:
 
+**Correction, 2026-08-21:** skipping the graphics framebuffer preallocation was
+reverted. It appeared to free 36 KB, but the heap fragments within seconds of
+boot and `ensure_gfx_buffer()`'s on-demand path can then never obtain a 36 KB
+contiguous block -- measured `free=72328, largest=31744` with nothing else
+running. So the memory was not usable after all, and skipping it only removed
+the ability to enter a pixel mode at any point in the device's uptime. Taking
+the buffer at boot, while the heap is whole, is what makes graphics possible.
+
 | Consumer | Status |
 |---|---|
 | Bluetooth / NimBLE | removed (33 KB static) |

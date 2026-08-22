@@ -382,15 +382,18 @@ void rgb_display_init(void)
     // Reserve the lighter 150p graphics framebuffer up front so later Lua/script
     // activity does not fragment the heap before first graphics-mode entry.
     //
-    // The slim ESP-Claw profile skips this: 36 KB of internal SRAM held for a
-    // graphics mode the agent never enters is the single largest saving
-    // available on a PSRAM-less Cardputer, and ensure_gfx_buffer() still
-    // allocates on demand if something does switch to graphics mode.
-#if !defined(BREEZY_SLIM)
+    // Reserved on every profile, including the slim ESP-Claw one.
+    //
+    // Skipping it there looked like the single largest saving available on a
+    // PSRAM-less board, and ensure_gfx_buffer() does allocate on demand -- but
+    // on demand is too late. The heap fragments within seconds of boot, and a
+    // 36 KB contiguous block is never available again: measured free=72328
+    // with largest=31744, so the memory that was "saved" is unusable anyway.
+    // Taking it here, while the heap is still whole, is what makes graphics
+    // possible at all.
     if (ensure_gfx_buffer(GFX_FB_150P_BYTES) != ESP_OK) {
         ESP_LOGW(TAG, "150p graphics buffer was not preallocated at startup");
     }
-#endif
 
     ESP_ERROR_CHECK(board_display_power_init());
 

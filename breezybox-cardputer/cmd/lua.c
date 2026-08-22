@@ -3849,18 +3849,14 @@ static int l_gfx_mode(lua_State *L)
         unsigned free_bytes = (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         unsigned largest = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         /*
-         * A pixel mode needs one contiguous framebuffer (36 KB for 150p), and
-         * the agent plus the Lua interpreter are both resident when a script
-         * runs through run_lua. Total free is usually ample; the largest block
-         * is not. Running the saved script from the shell, with no agent
-         * loaded, generally succeeds -- so say that rather than leaving the
-         * caller to conclude graphics are unavailable.
+         * The framebuffer is reserved at boot, so reaching here means it was
+         * released and could not be retaken -- the heap fragments quickly and
+         * a 36 KB contiguous block does not come back.
          */
         return luaL_error(L,
                           "cannot switch display mode: need one contiguous "
-                          "block, have free=%d largest=%d. Graphics usually "
-                          "will not fit while the agent is running -- save the "
-                          "script and run it from the shell instead.",
+                          "block, have free=%d largest=%d. Reboot to reclaim "
+                          "it.",
                           (int)free_bytes,
                           (int)largest);
     }
