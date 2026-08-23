@@ -25,7 +25,9 @@
 
 static const char *TAG = "claw";
 
-#define CLAW_IO_CHUNK   512
+/* Matches the outbound TLS record size, so a write becomes one full record
+ * rather than a fraction of one. */
+#define CLAW_IO_CHUNK   1024
 #define CLAW_REQ_SD     "/sd/claw/tmp/req.json"
 #define CLAW_REQ_FLASH  "/root/.claw_req.json"
 
@@ -543,6 +545,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     /* Signature of the previous tool call. A model that gets an unusable result
      * tends to retry the identical call; catching that turns a silent eight
      * round burn into one clear message. */
+    bool     retried = false;
     char     last_error[160] = {0};
     char     last_name[64] = {0};
     uint32_t last_hash = 0;
@@ -600,6 +603,26 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         stream_ctx_t *sctx = sctxp;
 
         rc = claw_round(backend, messages, api_key, verbose, res, sctx, ca_pem, parser);
+
+        /*
+         * Retry once when the connection failed before the provider said
+         * anything. res->status stays -1 until headers arrive, so this cannot
+         * re-send a request the server already answered -- and a flaky link
+         * should cost a pause rather than the whole conversation.
+         */
+        if (rc != 0 && res->status == -1 && !retried) {
+            retried = true;
+            printf("  (connection failed, retrying once)\n");
+            res->error[0] = '\0';
+            memset(sctxp, 0, sizeof(*sctxp));
+            sctxp->backend   = backend;
+            sctxp->res       = res;
+            sctxp->reply     = reply;
+            sctxp->reply_cap = CLAW_TURN_MAX + 1;
+            sctxp->reply_len = reply ? strlen(reply) : 0;
+            rc = claw_round(backend, messages, api_key, verbose, res, sctx,
+                            ca_pem, parser);
+        }
 
         if (rc != 0 || !sctx->has_call) {
             break;

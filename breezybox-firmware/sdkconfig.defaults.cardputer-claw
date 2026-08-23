@@ -48,7 +48,13 @@ CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
 # The risk is a server sending a TLS record larger than this, which would fail
 # the connection; raise it back if that shows up.
 CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
-CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
+# Outbound TLS record size, raised from the inherited 1024.
+#
+# A request is 10 KB and upward once tools are declared. At 1024 that is twenty
+# odd small records into a 5760 byte TCP send buffer, and a send has been seen
+# to stall at 3072 bytes and never resume. Larger records mean fewer, fuller
+# segments. Costs about 3 KB of RAM.
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
