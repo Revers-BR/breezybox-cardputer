@@ -35,6 +35,13 @@ if [ -f "$CJSON/cJSON.c" ]; then
 
     echo ""
 
+    echo "=== json writer ==="
+    $CC -std=c11 -Wall -Wextra -Werror -I"$SRC" -I "$CJSON" \
+        tests/c/test_claw_json_write.c "$SRC/claw_json_write.c" \
+        "$CJSON/cJSON.c" -o "$OUT/jw"
+    "$OUT/jw"
+
+    echo ""
     echo "=== backend request bodies ==="
     $CC -std=c11 -Wall -Wextra -I"$SRC" -I tests/c/stub -I "$CJSON" \
         tests/c/test_claw_backends.c \

@@ -6,7 +6,6 @@
   "agent.agent_ask.out_memory_tool": "out of memory for tool output",
   "agent.resolve_ca.msg": "%s/%s",
   "agent.write_body.cannot_reopen_request": "cannot reopen request file",
-  "agent.write_body.cannot_write_request": "cannot write request file",
   "agent.write_body.could_build_request": "could not build request body",
   "agent.write_body.http": "HTTP %d - %s",
   "agent.write_body.http2": "HTTP %d - %.120s",

@@ -55,6 +55,7 @@ idf_component_register(
         "claw/claw_backend_openai.c"
         "claw/claw_config.c"
         "claw/claw_memory.c"
+        "claw/claw_json_write.c"
         "claw/claw_models.c"
         "claw/claw_prompt.c"
         "claw/claw_session.c"

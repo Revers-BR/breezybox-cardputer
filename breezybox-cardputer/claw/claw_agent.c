@@ -1,6 +1,7 @@
 #include "claw_agent.h"
 #include "claw_backend.h"
 #include "claw_config.h"
+#include "claw_json_write.h"
 #include "claw_memory.h"
 #include "claw_prompt.h"
 #include "claw_session.h"
@@ -179,29 +180,6 @@ static void on_sse_event(const char *event, const char *data, void *vctx)
     cJSON_Delete(obj);
 }
 
-/* Write the request body to disk so it can be streamed with a known length. */
-static bool write_body(const char *json, char *path_out, size_t path_len)
-{
-    const char *candidates[] = { CLAW_REQ_SD, CLAW_REQ_FLASH };
-    mkdir("/sd/claw", 0777);
-    mkdir("/sd/claw/tmp", 0777);
-
-    size_t len = strlen(json);
-    for (size_t i = 0; i < 2; i++) {
-        FILE *f = fopen(candidates[i], "wb");
-        if (!f) {
-            continue;
-        }
-        size_t wrote = fwrite(json, 1, len, f);
-        fclose(f);
-        if (wrote == len) {
-            snprintf(path_out, path_len, "%s", candidates[i]);
-            return true;
-        }
-    }
-    return false;
-}
-
 /*
  * One request/response round.
  *
@@ -225,50 +203,36 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     }
 
     /*
-     * Print into the parser's buffer rather than allocating another one.
+     * Write the body straight to the file it will be streamed from.
      *
-     * The request body is the third large contiguous block a round needs,
-     * after the parser and the streaming context, and asking for it once the
-     * Lua interpreter has been through the heap is what fails. The parser is
-     * idle here -- it is only used to read the response, which has not been
-     * sent for yet -- so its 16 KB is free scratch that is already contiguous
-     * and already ours.
+     * cJSON's printers build the whole document in one allocation and grow it
+     * by doubling, so a 12 KB request asks for 32 KB contiguous -- which fails
+     * on this heap, and fails hardest for the large requests that matter. This
+     * walks the tree writing as it goes, so peak memory is a stack frame per
+     * nesting level no matter how big the request gets.
      */
-    char *json = NULL;
-    bool owned = false;
-    if (cJSON_PrintPreallocated(body, parser->data, CLAW_SSE_MAX_DATA, false)) {
-        json = parser->data;
-    } else {
-        /* Bigger than the scratch buffer: fall back to allocating, which may
-         * well work when the heap is fresh. */
-        json = cJSON_PrintUnformatted(body);
-        owned = true;
+    char req_path[64];
+    mkdir("/sd/claw", 0777);
+    mkdir("/sd/claw/tmp", 0777);
+
+    long written = -1;
+    const char *candidates[] = { CLAW_REQ_SD, CLAW_REQ_FLASH };
+    for (size_t i = 0; i < 2 && written < 0; i++) {
+        written = claw_json_write_file(body, candidates[i]);
+        if (written >= 0) {
+            snprintf(req_path, sizeof(req_path), "%s", candidates[i]);
+        }
     }
     cJSON_Delete(body);
-    if (!json) {
-        const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-        snprintf(res->error, sizeof(res->error),
-                 "request too large to serialise (largest block %u). Try "
-                 "/new, or lower context_budget.",
-                 (unsigned)heap_caps_get_largest_free_block(caps));
-        return 1;
-    }
 
-    char req_path[64];
-    bool staged = write_body(json, req_path, sizeof(req_path));
-    int body_len = (int)strlen(json);
-    res->bytes_sent = (size_t)body_len;
-    if (owned) {
-        cJSON_free(json);
-    }
-    /* Leave no request bytes behind in the buffer the response will parse. */
-    parser->data[0] = '\0';
-    if (!staged) {
+    if (written < 0) {
         snprintf(res->error, sizeof(res->error),
-                 claw_text("agent.write_body.cannot_write_request",
-                           "cannot write request file"));
+                 "cannot write the request to %s or %s",
+                 CLAW_REQ_SD, CLAW_REQ_FLASH);
         return 1;
     }
+    const int body_len = (int)written;
+    res->bytes_sent = (size_t)written;
 
     char url[256];
     backend->endpoint(url, sizeof(url));

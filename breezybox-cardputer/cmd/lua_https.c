@@ -200,6 +200,20 @@ static int l_https_request(lua_State *L)
     {
         char bad[48];
         if (https_check_keys(L, 1, bad, sizeof(bad))) {
+            /* Name the nearest match first: 'timeout' for 'timeout_ms' is an
+             * easy slip, and a list of ten alternatives buries the answer. */
+            const char *near = NULL;
+            size_t blen = strlen(bad);
+            for (size_t i = 0; i < sizeof(k_https_keys) / sizeof(k_https_keys[0]); i++) {
+                if (strncmp(bad, k_https_keys[i], blen) == 0) {
+                    near = k_https_keys[i];
+                    break;
+                }
+            }
+            if (near) {
+                luaL_error(L, "breezy.https.request: no option '%s' -- did you "
+                              "mean '%s'?", bad, near);
+            }
             luaL_error(L, "breezy.https.request: unknown option '%s'. "
                           "Accepted: url, method, headers, body, body_file, "
                           "on_chunk, on_status, ca_file, ca_pem, timeout_ms",
