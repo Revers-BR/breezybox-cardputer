@@ -97,7 +97,9 @@ In a session, `/` commands control the agent and everything else is a question:
 | `/stats` | status and memory |
 | `/verbose` | toggle transport statistics |
 | `/help` | this list |
+| `/retry` | send the last question again |
 | `exit`, Ctrl-D | leave |
+| Ctrl-C | clear the line; twice in a row leaves |
 
 ## Tools
 

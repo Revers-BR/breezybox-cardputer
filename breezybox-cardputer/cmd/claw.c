@@ -27,6 +27,7 @@
 #include "esp_log.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <string.h>
@@ -275,8 +276,8 @@ static int cmd_repl(void)
     claw_backend_model(b, model, sizeof(model));
 
     printf("claw " CLAW_VERSION " - %s / %s\n", b->name, model);
-    printf("session %s (%d turns). Ctrl-D or 'exit' to leave, /help for commands.\n",
-           sid, claw_session_count());
+    printf("session %s (%d turns). ^C clears, ^C^C or 'exit' leaves, "
+           "/help for commands.\n", sid, claw_session_count());
     if (!b->add_tools) {
         printf("note: %s has no tool support here, so this is chat only.\n", b->name);
     }
@@ -286,13 +287,30 @@ static int cmd_repl(void)
     /* The last question asked, so a turn lost to a dropped connection can be
      * sent again without retyping it. */
     char last_prompt[512] = {0};
+    bool interrupt_armed = false;   /* a Ctrl-C is pending; a second one exits */
 
     while (true) {
+        errno = 0;
         char *line = linenoise("claw> ");
-        if (!line) {                      /* Ctrl-D */
+        if (!line) {
+            /*
+             * linenoise reports Ctrl-C as EAGAIN and end-of-input as anything
+             * else. Ctrl-C should clear what was typed, as it does in a shell;
+             * only a second one in a row, or Ctrl-D, should leave.
+             */
+            if (errno == EAGAIN) {
+                if (interrupt_armed) {
+                    printf("\n");
+                    break;
+                }
+                interrupt_armed = true;
+                printf("  (^C again to exit)\n");
+                continue;
+            }
             printf("\n");
             break;
         }
+        interrupt_armed = false;
 
         /* Trim trailing whitespace so a stray space is not sent as a turn. */
         size_t len = strlen(line);
@@ -393,7 +411,7 @@ static int cmd_repl(void)
                 printf("  /retry    send the last question again\n");
                 printf("  /stats    status and memory\n");
                 printf("  /verbose  toggle transport statistics\n");
-                printf("  exit      leave\n\n");
+                printf("  exit      leave (or ^C twice, or ^D)\n\n");
             } else {
                 printf("unknown command: %s  (try /help)\n\n", line);
             }
