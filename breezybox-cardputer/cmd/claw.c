@@ -255,7 +255,13 @@ static int run_turn(const char *prompt, bool verbose)
     if (rc != 0 && res.error[0]) {
         printf("claw: %s\n", res.error);
     } else if (rc == 0 && !res.got_text) {
-        printf("(no text in response)\n");
+        if (res.tool_calls > 0) {
+            printf("(ran %u tool call%s but gave no answer -- ask it to "
+                   "continue, or /retry)\n",
+                   (unsigned)res.tool_calls, res.tool_calls == 1 ? "" : "s");
+        } else {
+            printf("(no text in response)\n");
+        }
     }
     return rc;
 }

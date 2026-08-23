@@ -549,6 +549,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     /* Signature of the previous tool call. A model that gets an unusable result
      * tends to retry the identical call; catching that turns a silent eight
      * round burn into one clear message. */
+    char     tools_used[96] = {0};   /* for a turn that acts but never answers */
     char     last_error[160] = {0};
     char     last_name[64] = {0};
     uint32_t last_hash = 0;
@@ -716,6 +717,12 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
             break;
         }
         snprintf(last_name, sizeof(last_name), "%s", call_name);
+        if (strlen(tools_used) + strlen(call_name) + 2 < sizeof(tools_used)) {
+            if (tools_used[0]) {
+                strcat(tools_used, ", ");
+            }
+            strcat(tools_used, call_name);
+        }
         last_hash = hash;
         have_last = true;
 
@@ -792,9 +799,21 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
 
     if (rc == 0 && reply && reply[0]) {
         claw_session_append("assistant", reply);
+    } else if (res->tool_calls > 0) {
+        /*
+         * No answer, but work was done. Rolling the turn back would erase both
+         * the question and the fact that anything happened, so "what did you
+         * just do?" gets a blank look. Record what ran instead: it keeps the
+         * roles alternating and leaves the follow-up something to work from.
+         */
+        char note[192];
+        snprintf(note, sizeof(note),
+                 "(I used %s but did not produce an answer.)",
+                 tools_used[0] ? tools_used : "some tools");
+        claw_session_append("assistant", note);
     } else {
-        /* No answer, so drop the question too: leaving it would put two user
-         * turns in a row on the next request. */
+        /* Nothing happened at all, so drop the question too: leaving it would
+         * put two user turns in a row on the next request. */
         claw_session_rollback(session_mark);
     }
 
