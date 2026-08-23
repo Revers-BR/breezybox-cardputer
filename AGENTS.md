@@ -143,9 +143,10 @@ Where things live:
 
 Things worth knowing before changing it:
 
-- The agent requires the `cardputer-claw` build profile. On the stock
-  `cardputer` build it compiles and runs but TLS handshakes fail for want of
-  contiguous memory.
+- The agent runs on the standard `cardputer` build. Memory is still the binding
+  constraint on a board with no PSRAM: the largest single allocation during a
+  request is the 12 KB stream parser, and every change here should be weighed
+  against the largest *contiguous* block available, not total free heap.
 - `claw_session_replay()` returns neutral `{role, content}` turns so the
   transcript stays provider-agnostic. Backends append tool turns in their own
   native shape into the same array, so **every `build_body` must pass native
@@ -196,10 +197,13 @@ Things worth knowing before changing it:
 
 - `cardputer` universal image for Cardputer and Cardputer ADV
 - `cardputer-adv` as above; kept for compatibility, the keyboard is detected at runtime
-- `cardputer-claw` the agent profile: Bluetooth, SSH and the ELF loader
-  dropped, no graphics-framebuffer preallocation, 8 KB TLS record buffer, one
-  virtual terminal. Frees roughly 100 KB of internal SRAM, which is what makes
-  a TLS handshake possible.
+- `cardputer-claw` retained for testing a minimal build; **not** the shipping
+  image. `cardputer` now runs the agent too, so there is one image to
+  distribute. What made that possible: writing the request straight to a file
+  instead of building it in memory (`claw_json_write.c`), 8 KB rather than 16 KB
+  streaming buffers, and `claw` borrowing the 36 KB graphics framebuffer while
+  it runs. Before those, the agent needed roughly 100 KB that the full build
+  did not have.
 - `sticks3` M5StickC S3
 
 

@@ -59,6 +59,9 @@ make flash PORT=/dev/cu.usbmodem1101
 make monitor PORT=/dev/cu.usbmodem1101
 ```
 
+This one image has everything: the shell, Bluetooth keyboard support, SSH,
+graphics, Lua, and the `claw` AI agent. There is no separate agent build.
+
 To create the final install image, use:
 
 ```sh
@@ -69,21 +72,6 @@ The resulting `breezybox-firmware/build-cardputer/breezybox-cardputer.bin`
 contains the bootloader, partition table, firmware, and LittleFS image. It is
 the same universal image for both Cardputer and Cardputer ADV, is compatible
 with Launcher, and may also be flashed directly at offset `0x0`.
-
-### Cardputer with the AI agent
-
-`claw` needs the `cardputer-claw` profile. It is the same hardware and the same
-auto-detecting image, trimmed so a TLS handshake has the memory it needs:
-Bluetooth, SSH and the ELF loader are dropped, and there is one virtual terminal
-instead of two.
-
-```sh
-make build BOARD=cardputer-claw
-make flash BOARD=cardputer-claw PORT=/dev/cu.usbmodem1101
-```
-
-`BOARD=` is needed on the flash command too. See [claw.md](docs/claw.md) for
-setup and usage.
 
 ### StickS3
 

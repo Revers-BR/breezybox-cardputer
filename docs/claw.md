@@ -25,17 +25,14 @@ claw> exit
 
 ## Requirements
 
-The `cardputer-claw` firmware profile. The default `cardputer` build has claw
-compiled in, but not the memory savings that let a TLS handshake complete, so
-requests will fail. Build and flash it with:
+The standard firmware -- `claw` is part of it, alongside the shell, Bluetooth,
+SSH and graphics:
 
 ```sh
 source ~/esp/esp-idf/export.sh
-make build BOARD=cardputer-claw
-make flash BOARD=cardputer-claw PORT=/dev/cu.usbmodem1101
+make build
+make flash PORT=/dev/cu.usbmodem1101
 ```
-
-`BOARD=` is needed on the flash command too, not just the build.
 
 An SD card is recommended but not required: it holds settings, transcripts and
 skills, and survives reflashing. Without one, everything falls back to `/root`
