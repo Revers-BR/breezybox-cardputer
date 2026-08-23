@@ -35,6 +35,11 @@ static const char *TAG = "claw";
  * tools cannot spend the user's money or the device's battery indefinitely. */
 #define CLAW_MAX_TOOL_ROUNDS 8
 
+/* Attempts after the first, for a connection that never reached the provider.
+ * Three covers a link that drops for a few seconds; more would just make a
+ * genuinely dead network take longer to report. */
+#define CLAW_MAX_RETRIES 3
+
 /* Where the shipped package lives, for backend CA files. Mirrors the search
  * order used elsewhere so a working copy on the card wins. */
 static const char *k_install_dirs[] = {
@@ -545,7 +550,6 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     /* Signature of the previous tool call. A model that gets an unusable result
      * tends to retry the identical call; catching that turns a silent eight
      * round burn into one clear message. */
-    bool     retried = false;
     char     last_error[160] = {0};
     char     last_name[64] = {0};
     uint32_t last_hash = 0;
@@ -605,14 +609,20 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         rc = claw_round(backend, messages, api_key, verbose, res, sctx, ca_pem, parser);
 
         /*
-         * Retry once when the connection failed before the provider said
-         * anything. res->status stays -1 until headers arrive, so this cannot
-         * re-send a request the server already answered -- and a flaky link
-         * should cost a pause rather than the whole conversation.
+         * Retry a connection that failed before the provider said anything.
+         *
+         * res->status stays -1 until headers arrive, so a request the server
+         * has already answered is never re-sent. Backing off matters on a link
+         * that drops for a few seconds at a time, and retrying the round rather
+         * than the turn keeps any tool results already gathered.
          */
-        if (rc != 0 && res->status == -1 && !retried) {
-            retried = true;
-            printf("  (connection failed, retrying once)\n");
+        for (int attempt = 1; rc != 0 && res->status == -1 &&
+                              attempt <= CLAW_MAX_RETRIES; attempt++) {
+            const int wait_ms = 500 << (attempt - 1);   /* 0.5s, 1s, 2s */
+            printf("  (connection failed, retrying in %.1fs -- %d of %d)\n",
+                   wait_ms / 1000.0, attempt, CLAW_MAX_RETRIES);
+            vTaskDelay(pdMS_TO_TICKS(wait_ms));
+
             res->error[0] = '\0';
             memset(sctxp, 0, sizeof(*sctxp));
             sctxp->backend   = backend;
@@ -620,8 +630,12 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
             sctxp->reply     = reply;
             sctxp->reply_cap = CLAW_TURN_MAX + 1;
             sctxp->reply_len = reply ? strlen(reply) : 0;
+
             rc = claw_round(backend, messages, api_key, verbose, res, sctx,
                             ca_pem, parser);
+            if (rc == 0) {
+                printf("  (reconnected)\n");
+            }
         }
 
         if (rc != 0 || !sctx->has_call) {

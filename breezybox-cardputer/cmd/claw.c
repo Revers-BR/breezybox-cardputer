@@ -283,6 +283,9 @@ static int cmd_repl(void)
     printf("\n");
 
     bool verbose = false;
+    /* The last question asked, so a turn lost to a dropped connection can be
+     * sent again without retyping it. */
+    char last_prompt[512] = {0};
 
     while (true) {
         char *line = linenoise("claw> ");
@@ -357,6 +360,14 @@ static int cmd_repl(void)
             } else if (strcmp(line, "/stats") == 0) {
                 cmd_stats();
                 printf("\n");
+            } else if (strcmp(line, "/retry") == 0) {
+                if (!last_prompt[0]) {
+                    printf("nothing to retry yet\n\n");
+                } else {
+                    printf("retrying: %s\n", last_prompt);
+                    run_turn(last_prompt, verbose);
+                    printf("\n");
+                }
             } else if (strcmp(line, "/reload") == 0) {
                 claw_text_reload();
                 printf("reloaded text overrides\n\n");
@@ -379,6 +390,7 @@ static int cmd_repl(void)
                 printf("  /skills   list saved skills\n");
                 printf("  /memory   list what claw remembers\n");
                 printf("  /reload   re-read prompt and tool text from SD\n");
+                printf("  /retry    send the last question again\n");
                 printf("  /stats    status and memory\n");
                 printf("  /verbose  toggle transport statistics\n");
                 printf("  exit      leave\n\n");
@@ -389,7 +401,10 @@ static int cmd_repl(void)
             continue;
         }
 
-        run_turn(line, verbose);
+        snprintf(last_prompt, sizeof(last_prompt), "%s", line);
+        if (run_turn(line, verbose) != 0) {
+            printf("  (/retry to send that again)\n");
+        }
         printf("\n");
         linenoiseFree(line);
     }
