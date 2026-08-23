@@ -23,11 +23,14 @@
  * The struct is heap-allocated (see claw_round) precisely so this can be
  * generous; it would not fit on the console task stack.
  *
- * 8 KB was still not enough: a model writing a complete TUI application sends
- * the whole script in one event, and 16 KB covers what a screenful of Lua
- * plus its JSON escaping actually costs.
+ * Back to 8 KB. 16 KB did cover a complete TUI application in one event, but
+ * this buffer is held for the whole request, and mbedTLS allocates its own
+ * per connection out of what is left -- at 16 KB the handshake started failing
+ * outright. A truncated event is a clear, reported failure; a handshake that
+ * cannot allocate is not. The prompt asks for scripts under about 100 lines,
+ * which fits here comfortably.
  */
-#define CLAW_SSE_MAX_DATA   16384
+#define CLAW_SSE_MAX_DATA   8192
 #define CLAW_SSE_MAX_EVENT  64
 
 /*

@@ -48,13 +48,15 @@ CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
 # The risk is a server sending a TLS record larger than this, which would fail
 # the connection; raise it back if that shows up.
 CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
-# Outbound TLS record size, raised from the inherited 1024.
+# Outbound TLS record size. Left at 1024.
 #
-# A request is 10 KB and upward once tools are declared. At 1024 that is twenty
-# odd small records into a 5760 byte TCP send buffer, and a send has been seen
-# to stall at 3072 bytes and never resume. Larger records mean fewer, fuller
-# segments. Costs about 3 KB of RAM.
-CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+# Raising it to 4096 to get fuller TCP segments made things worse, not better:
+# MBEDTLS_DYNAMIC_BUFFER allocates this buffer per connection, so the handshake
+# then needed 4437 contiguous bytes and failed outright with
+# MBEDTLS_ERR_SSL_ALLOC_FAILED where before it had merely been slow. On a heap
+# this fragmented, a smaller buffer that can always be obtained beats a larger
+# one that cannot.
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y

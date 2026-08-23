@@ -25,9 +25,8 @@
 
 static const char *TAG = "claw";
 
-/* Matches the outbound TLS record size, so a write becomes one full record
- * rather than a fraction of one. */
-#define CLAW_IO_CHUNK   1024
+/* Matches MBEDTLS_SSL_OUT_CONTENT_LEN, so a write is one record. */
+#define CLAW_IO_CHUNK   512
 #define CLAW_REQ_SD     "/sd/claw/tmp/req.json"
 #define CLAW_REQ_FLASH  "/root/.claw_req.json"
 
