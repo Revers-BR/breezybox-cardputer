@@ -1,0 +1,24 @@
+dependencies:
+  idf:
+    version: '>=5.0'
+description: breezy_bt - The bluetooth keyboard driver used in BreezyBox demo, a mini
+  shell for esp32
+documentation: https://github.com/valdanylchuk/tree/main/src/components/breezy_bt#readme
+issues: https://github.com/valdanylchuk/breezybox/issues
+license: MIT
+maintainers:
+- Valentyn Danylchuk <val@danylchuk.com>
+repository: https://github.com/valdanylchuk/breezybox.git
+targets:
+- esp32
+- esp32c2
+- esp32c3
+- esp32c5
+- esp32c6
+- esp32c61
+- esp32h2
+- esp32h21
+- esp32h4
+- esp32s3
+url: https://github.com/valdanylchuk/breezybox/tree/main/src/components/breezy_bt
+version: 1.0.2

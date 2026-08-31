@@ -24,6 +24,11 @@
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
 
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
+#include <limits.h>
+
 #include "cJSON.h"
 #include "lauxlib.h"
 #include "lua.h"
@@ -147,6 +152,91 @@ static lua_tcp_slot_t s_lua_tcp_slots[LUA_TCP_SLOT_COUNT];
 static lua_builtin_speaker_t s_lua_speaker = {0};
 static lua_mic_state_t s_lua_mic = {0};
 
+/*
+ * Suggest what exists when a script reaches for something that does not.
+ *
+ * "attempt to call a nil value (field 'log')" says what broke but not what
+ * would have worked, so both people and models respond by guessing again. The
+ * name is right there in the message; the module table can answer whether
+ * anything close to it exists.
+ */
+static void suggest_breezy_field(lua_State *L, const char *msg)
+{
+    const char *open = strstr(msg, "(field '");
+    if (!open) {
+        return;
+    }
+    open += strlen("(field '");
+    const char *close = strchr(open, '\'');
+    if (!close || (close - open) > 40) {
+        return;
+    }
+
+    /* Only advise when the failure was inside the breezy module. */
+    lua_getglobal(L, "package");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return;
+    }
+    lua_getfield(L, -1, "loaded");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 2);
+        return;
+    }
+    lua_getfield(L, -1, "breezy");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 3);
+        return;
+    }
+
+    printf("  there is no breezy.%.*s\n", (int)(close - open), open);
+
+    printf("  functions:");
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+        if (lua_type(L, -2) == LUA_TSTRING && lua_isfunction(L, -1)) {
+            printf(" %s", lua_tostring(L, -2));
+        }
+        lua_pop(L, 1);
+    }
+    printf("\n");
+
+    /* Listed from the table above, not by iterating: these are built on
+     * demand, so the ones nobody has touched yet are invisible. */
+    size_t nmods = 0;
+    const char *const *mods = breezy_module_names(&nmods);
+    printf("  modules:");
+    for (size_t i = 0; i < nmods; i++) {
+        printf(" %s", mods[i]);
+    }
+    printf("\n");
+    lua_pop(L, 3);
+}
+
+/*
+ * Compile a chunk without running it.
+ *
+ * Returns NULL when it parses, or a static message describing the syntax
+ * error. Used by the agent's write_file so a saved script that cannot even
+ * compile is reported at the point it is written.
+ */
+const char *breezy_lua_check_syntax(const char *code)
+{
+    static char msg[160];
+    lua_State *L = luaL_newstate();
+    if (!L) {
+        return NULL;                     /* cannot check; do not claim a fault */
+    }
+    const char *result = NULL;
+    if (luaL_loadbuffer(L, code, strlen(code), "=check") != LUA_OK) {
+        const char *e = lua_tostring(L, -1);
+        snprintf(msg, sizeof(msg), "%s", e ? e : "syntax error");
+        result = msg;
+    }
+    lua_close(L);
+    return result;
+}
+
 static void print_lua_error(lua_State *L, const char *prefix)
 {
     const char *msg = lua_tostring(L, -1);
@@ -158,6 +248,7 @@ static void print_lua_error(lua_State *L, const char *prefix)
     } else {
         printf("%s\n", msg);
     }
+    suggest_breezy_field(L, msg);
     lua_pop(L, 1);
 }
 
@@ -1764,7 +1855,16 @@ static void lua_push_from_cjson(lua_State *L, const cJSON *node)
         return;
     }
     if (cJSON_IsNumber(node)) {
-        lua_pushnumber(L, node->valuedouble);
+        /* Push whole numbers as Lua integers. Otherwise every JSON int comes
+         * back as a float and stringifies as "16.0", which then leaks into
+         * re-encoded requests and printed output. */
+        double d = node->valuedouble;
+        if (d >= (double)LLONG_MIN && d <= (double)LLONG_MAX &&
+            d == (double)(long long)d) {
+            lua_pushinteger(L, (lua_Integer)(long long)d);
+        } else {
+            lua_pushnumber(L, d);
+        }
         return;
     }
     if (cJSON_IsString(node)) {
@@ -3748,8 +3848,15 @@ static int l_gfx_mode(lua_State *L)
     if (rgb_display_set_mode(mode) != 0) {
         unsigned free_bytes = (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         unsigned largest = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        /*
+         * The framebuffer is reserved at boot, so reaching here means it was
+         * released and could not be retaken -- the heap fragments quickly and
+         * a 36 KB contiguous block does not come back.
+         */
         return luaL_error(L,
-                          "failed to switch display mode (internal free=%d largest=%d)",
+                          "cannot switch display mode: need one contiguous "
+                          "block, have free=%d largest=%d. Reboot to reclaim "
+                          "it.",
                           (int)free_bytes,
                           (int)largest);
     }
@@ -3850,7 +3957,301 @@ static int l_gfx_wait_vsync(lua_State *L)
     return 0;
 }
 
+/*
+ * breezy.write(text) - write to the console with no trailing newline.
+ *
+ * The sandbox does not open the io library, so print() is the only output
+ * primitive and it always appends a newline. Streaming token-by-token output
+ * needs to be able to continue a line.
+ */
+static int l_breezy_write(lua_State *L)
+{
+    size_t len = 0;
+    const char *text = luaL_checklstring(L, 1, &len);
+    if (len > 0) {
+        fwrite(text, 1, len, stdout);
+        fflush(stdout);
+    }
+    return 0;
+}
+
+/*
+ * breezy.build() -> { profile=, bluetooth=, built= }
+ *
+ * Identifies the running binary. `built` is the compile timestamp, which is the
+ * only reliable way to tell whether a reflash actually took -- heap numbers
+ * alone are easy to misread.
+ */
+static int l_breezy_build(lua_State *L)
+{
+    lua_newtable(L);
+
+#if defined(BREEZY_SLIM)
+    lua_pushstring(L, "cardputer-claw (slim)");
+#else
+    lua_pushstring(L, "cardputer/adv (full)");
+#endif
+    lua_setfield(L, -2, "profile");
+
+#if defined(CONFIG_BT_ENABLED)
+    lua_pushboolean(L, 1);
+#else
+    lua_pushboolean(L, 0);
+#endif
+    lua_setfield(L, -2, "bluetooth");
+
+    lua_pushstring(L, __DATE__ " " __TIME__);
+    lua_setfield(L, -2, "built");
+
+    return 1;
+}
+
+/*
+ * breezy.heap() -> free, min_free, largest
+ *
+ * Internal (DRAM) heap only, which is the number that matters on a board with
+ * no PSRAM: TLS handshakes fail with MBEDTLS_ERR_SSL_ALLOC_FAILED long before
+ * the total looks alarming, because what runs out is a large-enough
+ * *contiguous* block.
+ */
+static int l_breezy_heap(lua_State *L)
+{
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    lua_pushinteger(L, (lua_Integer)heap_caps_get_free_size(caps));
+    lua_pushinteger(L, (lua_Integer)heap_caps_get_minimum_free_size(caps));
+    lua_pushinteger(L, (lua_Integer)heap_caps_get_largest_free_block(caps));
+    return 3;
+}
+
+/* ------------------------------------------------- filesystem, beyond files --
+ *
+ * read_file/write_file/listdir/exists covered reading and writing, but nothing
+ * could create a directory, delete anything or ask how big a file was -- so a
+ * script had to shell out to breezy.exec("mkdir ...") and parse text. These are
+ * the operations an app needs before it can keep its own data tidy.
+ */
+static int l_breezy_mkdir(lua_State *L)
+{
+    const char *path = luaL_checkstring(L, 1);
+    char resolved[BREEZYBOX_MAX_PATH * 2];
+    if (!breezybox_resolve_path(path, resolved, sizeof(resolved))) {
+        return luaL_error(L, "path too long: %s", path);
+    }
+    struct stat st;
+    if (stat(resolved, &st) == 0 && S_ISDIR(st.st_mode)) {
+        lua_pushboolean(L, 1);           /* already there is success */
+        return 1;
+    }
+    if (mkdir(resolved, 0777) != 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "cannot create %s", resolved);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int l_breezy_remove(lua_State *L)
+{
+    const char *path = luaL_checkstring(L, 1);
+    char resolved[BREEZYBOX_MAX_PATH * 2];
+    if (!breezybox_resolve_path(path, resolved, sizeof(resolved))) {
+        return luaL_error(L, "path too long: %s", path);
+    }
+    struct stat st;
+    if (stat(resolved, &st) != 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "no such path: %s", resolved);
+        return 2;
+    }
+    int rc = S_ISDIR(st.st_mode) ? rmdir(resolved) : remove(resolved);
+    if (rc != 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "cannot remove %s%s", resolved,
+                        S_ISDIR(st.st_mode) ? " (directory must be empty)" : "");
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int l_breezy_rename(lua_State *L)
+{
+    const char *from = luaL_checkstring(L, 1);
+    const char *to = luaL_checkstring(L, 2);
+    char rfrom[BREEZYBOX_MAX_PATH * 2];
+    char rto[BREEZYBOX_MAX_PATH * 2];
+    if (!breezybox_resolve_path(from, rfrom, sizeof(rfrom)) ||
+        !breezybox_resolve_path(to, rto, sizeof(rto))) {
+        return luaL_error(L, "path too long");
+    }
+    if (rename(rfrom, rto) != 0) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "cannot rename %s to %s", rfrom, rto);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/* -> { size = bytes, dir = boolean, mtime = unix seconds }, or nil */
+static int l_breezy_stat(lua_State *L)
+{
+    const char *path = luaL_checkstring(L, 1);
+    char resolved[BREEZYBOX_MAX_PATH * 2];
+    if (!breezybox_resolve_path(path, resolved, sizeof(resolved))) {
+        return luaL_error(L, "path too long: %s", path);
+    }
+    struct stat st;
+    if (stat(resolved, &st) != 0) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_newtable(L);
+    lua_pushinteger(L, (lua_Integer)st.st_size);
+    lua_setfield(L, -2, "size");
+    lua_pushboolean(L, S_ISDIR(st.st_mode));
+    lua_setfield(L, -2, "dir");
+    lua_pushinteger(L, (lua_Integer)st.st_mtime);
+    lua_setfield(L, -2, "mtime");
+    return 1;
+}
+
+/* ------------------------------------------------------------------- time --
+ *
+ * now_ms() is uptime, which cannot date anything. The system clock exists (the
+ * `date` command sets it) but was not reachable from Lua, so a script could not
+ * timestamp a log line or show today's date.
+ */
+static int l_time_now(lua_State *L)
+{
+    lua_pushinteger(L, (lua_Integer)time(NULL));
+    return 1;
+}
+
+/* date([format[, when]]) -> string, strftime formats */
+static int l_time_date(lua_State *L)
+{
+    const char *fmt = luaL_optstring(L, 1, "%Y-%m-%d %H:%M:%S");
+    time_t when = (time_t)luaL_optinteger(L, 2, (lua_Integer)time(NULL));
+    struct tm tm;
+    localtime_r(&when, &tm);
+    char buf[128];
+    size_t n = strftime(buf, sizeof(buf), fmt, &tm);
+    lua_pushlstring(L, buf, n);
+    return 1;
+}
+
+static int l_time_set(lua_State *L)
+{
+    time_t when = (time_t)luaL_checkinteger(L, 1);
+    struct timeval tv = { .tv_sec = when, .tv_usec = 0 };
+    if (settimeofday(&tv, NULL) != 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, "cannot set the clock");
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+/* True once the clock looks like a real date rather than 1970. */
+static int l_time_is_set(lua_State *L)
+{
+    lua_pushboolean(L, time(NULL) > 1600000000);
+    return 1;
+}
+
+/*
+ * breezy.log(...) - print a timestamped line, and append it to a file.
+ *
+ * Scripts that run unattended -- a weather poller, a sensor logger -- want a
+ * record, and were reaching for a breezy.log that did not exist. Writing one
+ * by hand means opening a file, formatting a timestamp and appending on every
+ * call, which is enough friction that scripts simply printed instead and lost
+ * the history.
+ *
+ * Writes to /sd/claw/log.txt when a card is present, /root/.claw_log otherwise,
+ * and rotates at 64 KB so it cannot fill the card.
+ */
+#define BREEZY_LOG_MAX_BYTES (64 * 1024)
+
+static const char *breezy_log_path(void)
+{
+    static char path[48];
+    if (path[0]) {
+        return path;
+    }
+    struct stat st;
+    if (stat(BREEZYBOX_SD_MOUNT_POINT, &st) == 0 && S_ISDIR(st.st_mode)) {
+        mkdir("/sd/claw", 0777);
+        snprintf(path, sizeof(path), "/sd/claw/log.txt");
+    } else {
+        snprintf(path, sizeof(path), "%s/.claw_log", BREEZYBOX_MOUNT_POINT);
+    }
+    return path;
+}
+
+static int l_breezy_log(lua_State *L)
+{
+    int argc = lua_gettop(L);
+
+    char stamp[32];
+    time_t now = time(NULL);
+    if (now > 1600000000) {
+        struct tm tm;
+        localtime_r(&now, &tm);
+        strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tm);
+    } else {
+        /* No wall clock set, so uptime is the honest thing to record. */
+        snprintf(stamp, sizeof(stamp), "+%llus",
+                 (unsigned long long)(esp_timer_get_time() / 1000000));
+    }
+
+    char line[512];
+    size_t used = (size_t)snprintf(line, sizeof(line), "[%s] ", stamp);
+    for (int i = 1; i <= argc && used < sizeof(line) - 2; i++) {
+        const char *piece = lua_tostring(L, i);
+        if (!piece) {
+            piece = lua_typename(L, lua_type(L, i));
+        }
+        used += (size_t)snprintf(line + used, sizeof(line) - used, "%s%s",
+                                 i > 1 ? " " : "", piece);
+    }
+
+    printf("%s\n", line);
+
+    const char *path = breezy_log_path();
+    struct stat st;
+    if (stat(path, &st) == 0 && st.st_size > BREEZY_LOG_MAX_BYTES) {
+        char old[64];
+        snprintf(old, sizeof(old), "%s.1", path);
+        remove(old);
+        rename(path, old);
+    }
+    FILE *f = fopen(path, "ab");
+    if (f) {
+        fprintf(f, "%s\n", line);
+        fclose(f);
+    }
+
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static const luaL_Reg s_breezy_time_lib[] = {
+    { "now",    l_time_now },
+    { "date",   l_time_date },
+    { "set",    l_time_set },
+    { "is_set", l_time_is_set },
+    { NULL, NULL },
+};
+
 static const luaL_Reg s_breezy_lib[] = {
+    { "write", l_breezy_write },
+    { "log", l_breezy_log },
+    { "heap", l_breezy_heap },
+    { "build", l_breezy_build },
     { "exec", l_breezy_exec },
     { "cwd", l_breezy_cwd },
     { "cd", l_breezy_cd },
@@ -3858,6 +4259,10 @@ static const luaL_Reg s_breezy_lib[] = {
     { "read_file", l_breezy_read_file },
     { "write_file", l_breezy_write_file },
     { "exists", l_breezy_exists },
+    { "mkdir", l_breezy_mkdir },
+    { "remove", l_breezy_remove },
+    { "rename", l_breezy_rename },
+    { "stat", l_breezy_stat },
     { "sleep", l_breezy_sleep },
     { "sleep_ms", l_breezy_sleep_ms },
     { "now_ms", l_breezy_now_ms },
@@ -3931,6 +4336,54 @@ static const luaL_Reg s_breezy_storage_lib[] = {
     { "mounts", l_storage_mounts },
     { "info", l_storage_info },
     { NULL, NULL }
+};
+
+/*
+ * breezy.json - thin wrapper over the cJSON converters above.
+ *
+ * Parsing in C matters for the agent: a pure-Lua JSON parser run over every
+ * streamed SSE event is both slow and allocation-heavy on a board with no
+ * PSRAM.
+ */
+static int l_json_encode(lua_State *L)
+{
+    cJSON *node = lua_value_to_cjson(L, 1);
+    if (!node) {
+        lua_pushnil(L);
+        lua_pushstring(L, "cannot encode value");
+        return 2;
+    }
+    char *text = cJSON_PrintUnformatted(node);
+    cJSON_Delete(node);
+    if (!text) {
+        lua_pushnil(L);
+        lua_pushstring(L, "out of memory");
+        return 2;
+    }
+    lua_pushstring(L, text);
+    cJSON_free(text);
+    return 1;
+}
+
+static int l_json_decode(lua_State *L)
+{
+    size_t len = 0;
+    const char *text = luaL_checklstring(L, 1, &len);
+    cJSON *root = cJSON_ParseWithLength(text, len);
+    if (!root) {
+        lua_pushnil(L);
+        lua_pushstring(L, "invalid json");
+        return 2;
+    }
+    lua_push_from_cjson(L, root);
+    cJSON_Delete(root);
+    return 1;
+}
+
+static const luaL_Reg s_breezy_json_lib[] = {
+    { "encode", l_json_encode },
+    { "decode", l_json_decode },
+    { NULL, NULL },
 };
 
 static const luaL_Reg s_breezy_network_lib[] = {
@@ -4023,6 +4476,28 @@ static int lua_reg_count(const luaL_Reg *reg)
     return count;
 }
 
+/*
+ * The sub-modules `breezy` builds on demand.
+ *
+ * They are created by the __index metamethod, so iterating the breezy table
+ * only ever shows the ones a script has already touched -- which made the
+ * "available:" hint on a nil-field error list a near-random subset and left the
+ * reader guessing at exactly the moment they needed the full set.
+ */
+static const char *const k_breezy_modules[] = {
+    "keyboard", "pin", "adc", "battery", "i2c", "i2s", "spi", "storage",
+    "network", "json", "https", "led", "time", "sound", "config", "tui",
+    "gfx", "uart",
+};
+
+const char *const *breezy_module_names(size_t *count)
+{
+    if (count) {
+        *count = sizeof(k_breezy_modules) / sizeof(k_breezy_modules[0]);
+    }
+    return k_breezy_modules;
+}
+
 static int lua_push_breezy_named_module(lua_State *L, const char *name)
 {
     if (!name) {
@@ -4048,6 +4523,18 @@ static int lua_push_breezy_named_module(lua_State *L, const char *name)
         luaL_newlib(L, s_breezy_storage_lib);
     } else if (strcmp(name, "network") == 0) {
         luaL_newlib(L, s_breezy_network_lib);
+    } else if (strcmp(name, "time") == 0) {
+        luaL_newlib(L, s_breezy_time_lib);
+    } else if (strcmp(name, "json") == 0) {
+        luaL_newlib(L, s_breezy_json_lib);
+    } else if (strcmp(name, "led") == 0) {
+        lua_newtable(L);
+        luaL_setfuncs(L, breezy_lua_led_lib(), 0);
+    } else if (strcmp(name, "https") == 0) {
+        /* The https table lives in another translation unit, so we only have a
+         * pointer here; luaL_newlib's sizeof() trick needs a real array. */
+        lua_newtable(L);
+        luaL_setfuncs(L, breezy_lua_https_lib(), 0);
     } else if (strcmp(name, "sound") == 0) {
         luaL_newlib(L, s_breezy_sound_lib);
     } else if (strcmp(name, "config") == 0) {
@@ -4064,8 +4551,34 @@ static int lua_push_breezy_named_module(lua_State *L, const char *name)
     return 1;
 }
 
+#ifndef NDEBUG
+/* The list above is maintained by hand, and a stale entry would put a module in
+ * the help text that does not exist -- the same class of bug this fixes. Check
+ * once that every declared name actually resolves. */
+static void breezy_assert_modules(lua_State *L)
+{
+    static bool checked;
+    if (checked) {
+        return;
+    }
+    checked = true;
+    size_t n = 0;
+    const char *const *mods = breezy_module_names(&n);
+    for (size_t i = 0; i < n; i++) {
+        lua_push_breezy_named_module(L, mods[i]);
+        if (lua_isnil(L, -1)) {
+            ESP_LOGE("breezy", "declared module '%s' does not resolve", mods[i]);
+        }
+        lua_pop(L, 1);
+    }
+}
+#endif
+
 static int l_breezy_index(lua_State *L)
 {
+#ifndef NDEBUG
+    breezy_assert_modules(L);
+#endif
     const char *name = luaL_checkstring(L, 2);
     lua_push_breezy_named_module(L, name);
     if (!lua_isnil(L, -1)) {
@@ -4229,12 +4742,33 @@ static void set_arg_table(lua_State *L, int argc, char **argv, int start_index)
     lua_setglobal(L, "arg");
 }
 
+/*
+ * Put the display back the way we found it.
+ *
+ * A script that enters graphics mode -- or dies partway through trying -- has
+ * no console to return to, and a dimmed backlight looks like the device has
+ * shut down. Nothing else restores it, so the console is simply gone until a
+ * reboot. Scripts should not have to get their own cleanup right for the
+ * machine to stay usable.
+ */
+static void restore_display(int saved_backlight)
+{
+    if (rgb_display_get_mode() != SM_TEXT) {
+        rgb_display_set_mode(SM_TEXT);
+    }
+    if (rgb_display_get_backlight() < 16 && saved_backlight >= 16) {
+        rgb_display_set_backlight(saved_backlight);
+    }
+}
+
 static int run_lua_chunk(lua_State *L, const char *chunk, const char *name, bool print_results)
 {
+    const int saved_backlight = rgb_display_get_backlight();
     int top = lua_gettop(L);
     int rc = luaL_loadbuffer(L, chunk, strlen(chunk), name);
     if (rc != LUA_OK) {
         print_lua_error(L, "lua");
+        restore_display(saved_backlight);
         return 1;
     }
 
@@ -4242,8 +4776,11 @@ static int run_lua_chunk(lua_State *L, const char *chunk, const char *name, bool
     if (rc != LUA_OK) {
         print_lua_error(L, "lua");
         lua_settop(L, top);
+        restore_display(saved_backlight);
         return 1;
     }
+
+    restore_display(saved_backlight);
 
     if (print_results) {
         int results = lua_gettop(L) - top;

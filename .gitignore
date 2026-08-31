@@ -23,3 +23,9 @@ breezybox-firmware/**/*.pyc
 # Built ELF app payloads
 breezybox-cardputer/apps/**/*.elf
 breezybox-cardputer/apps/**/*-stripped
+
+# Staged into fs_image at configure time from packages/espclaw/ (see
+# breezybox-firmware/CMakeLists.txt). packages/espclaw/ is the canonical source;
+# these are generated copies. Other fs_image content is still tracked.
+breezybox-firmware/fs_image/bin/claw
+breezybox-firmware/fs_image/apps/espclaw/

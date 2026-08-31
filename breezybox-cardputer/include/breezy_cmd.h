@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include "esp_console.h"
 
 // Command handlers - called by esp_console
@@ -46,12 +48,30 @@ int cmd_sleep(int argc, char **argv);
 int cmd_eget(int argc, char **argv);
 int cmd_ping(int argc, char **argv);
 int cmd_lua(int argc, char **argv);
+int cmd_claw(int argc, char **argv);
 #ifdef BREEZY_BOARD_CARDPUTER
 int cmd_ccleste(int argc, char **argv);
 #endif
+/* breezy.https sub-table (cmd/lua_https.c). Declared here so cmd/lua.c can
+ * attach it without exposing the rest of that translation unit. */
+struct luaL_Reg;
+const struct luaL_Reg *breezy_lua_https_lib(void);
+
+/* breezy.led sub-table (cmd/lua_led.c): addressable LED strips over RMT. */
+const struct luaL_Reg *breezy_lua_led_lib(void);
+
+/* Sub-modules of `breezy`, which are created on demand and so cannot be found
+ * by iterating the table. */
+const char *const *breezy_module_names(size_t *count);
+
+/* NULL when `code` compiles, otherwise a description of the syntax error. */
+const char *breezy_lua_check_syntax(const char *code);
+
+#if !defined(BREEZY_SLIM)
 int cmd_ssh(int argc, char **argv);
 int cmd_sshcfg(int argc, char **argv);
 int cmd_scp(int argc, char **argv);
+#endif
 int cmd_wifi(int argc, char **argv);
 int cmd_httpd(int argc, char **argv);
 int cmd_head(int argc, char **argv);

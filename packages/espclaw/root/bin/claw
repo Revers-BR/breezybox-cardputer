@@ -1,0 +1,1 @@
+lua /root/apps/espclaw/main.lua "$@"

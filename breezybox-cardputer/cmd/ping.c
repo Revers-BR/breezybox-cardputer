@@ -81,14 +81,16 @@ static void ping_on_end(esp_ping_handle_t hdl, void *args)
 
 static int resolve_ping_target(const char *host, ip_addr_t *target_addr)
 {
-    struct sockaddr_in6 sock_addr6;
     struct addrinfo hint = {0};
     struct addrinfo *res = NULL;
 
     memset(target_addr, 0, sizeof(*target_addr));
+#if CONFIG_LWIP_IPV6
+    struct sockaddr_in6 sock_addr6;
     if (inet_pton(AF_INET6, host, &sock_addr6.sin6_addr) == 1) {
         return ipaddr_aton(host, target_addr) ? 0 : -1;
     }
+#endif
 
     if (ipaddr_aton(host, target_addr)) {
         return 0;

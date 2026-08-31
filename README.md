@@ -12,7 +12,7 @@
 * I/O Redirection: Support for >, >>, <, and pipes |
 * Script Execution: Run shell scripts from files with sh
 * Tab/Hint Completion: Command completion via linenoise and hint autocomplete for some command options
-* History: Arrow key navigation through command history
+* History: Arrow key navigation through command history, saved to the SD card so it survives reflashing (`history path`, `history off`)
 * WiFi Commands: wifi scan, wifi connect, wifi status, saved credentials
 * Scrollback: Ctrl+arrow to view paged scrollback
 * HTTP Server: Built-in file server with httpd
@@ -20,6 +20,7 @@
 * Bluetooth keyboard support: Bluetooth keyboard scanning, pairing, reconnect, and saved target storage
 * File storage: LittleFS and SD card support
 * Lua: Embedded Lua runtime for scripting and lightweight GUI/TUI apps
+* AI agent: `claw` runs an on-device agent that can read and write files, run shell commands, write Lua, and drive Grove accessories ([see claw.md](docs/claw.md))
 * Built-in apps: `vi`, `plasma`, `termbench`, `wget`, `gzip`, `gunzip`, `ping`
 - Lots of extra shell utilities: [See commands.md](docs/commands.md)
 
@@ -29,6 +30,7 @@ Check out more examples and commands here
 * [Commands](docs/commands.md)
 * [Examples](docs/examples.md)
 * [Lua](docs/lua.md)
+* [claw, the AI agent](docs/claw.md)
 
 ## Filesystems
 
@@ -56,6 +58,9 @@ make build
 make flash PORT=/dev/cu.usbmodem1101
 make monitor PORT=/dev/cu.usbmodem1101
 ```
+
+This one image has everything: the shell, Bluetooth keyboard support, SSH,
+graphics, Lua, and the `claw` AI agent. There is no separate agent build.
 
 To create the final install image, use:
 
@@ -132,6 +137,18 @@ Pager controls in `help` and `more`:
 - `Space` = next page
 - `Enter` = next line
 - `q` = quit
+
+## ESPClaw
+
+```
+claw
+claw> what files are on the sd card?
+claw> read /sd/claw/config.json and tell me which backend I'm using
+claw> write a haiku about pocket computers to /sd/haiku.txt
+claw> how much free memory does this device have?
+claw> run df and summarise it
+write a lua script that shows the battery percentage, save it as battery
+```
 
 ## StickS3 Input
 

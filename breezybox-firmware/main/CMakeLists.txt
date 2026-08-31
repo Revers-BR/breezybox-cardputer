@@ -19,7 +19,6 @@ else()
     list(APPEND BOARD_SRCS
         "board_cardputer.c"
         "cardputer_keyboard.c"
-        "ssh_app_mode.c"
         "cmd_ccleste_builtin.c"
         "../../breezybox-cardputer/apps/ccleste/player.c"
         "../../breezybox-cardputer/apps/ccleste/level.c"
@@ -28,6 +27,9 @@ else()
         "../../breezybox-cardputer/apps/ccleste/sprites.c"
     )
     list(APPEND BOARD_INCLUDE_DIRS "../../breezybox-cardputer/apps/ccleste")
+    if(NOT BREEZY_BOARD STREQUAL "cardputer-claw")
+        list(APPEND BOARD_SRCS "ssh_app_mode.c")
+    endif()
 endif()
 
 # Register the 'main' component with the build system.

@@ -1,0 +1,80 @@
+# This file was generated using idf.py save-defconfig. It can be edited manually.
+# Espressif IoT Development Framework (ESP-IDF) 5.5.0 Project Minimal Configuration
+#
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+# Bluetooth off: ~18 KB of internal SRAM back for the TLS handshake.
+# Measured need -- with Lua resident the heap starts at ~28 KB and the
+# handshake wants ~25 KB, so the BT keyboard is the affordable thing to lose.
+# CONFIG_BT_ENABLED is not set
+CONFIG_ESP_TLS_INSECURE=y
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=512
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=6144
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=3
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=3
+CONFIG_ESP_WIFI_CACHE_TX_BUFFER_NUM=2
+CONFIG_ESP_WIFI_DYNAMIC_RX_MGMT_BUFFER=y
+CONFIG_ESP_WIFI_RX_MGMT_BUF_NUM_DEF=3
+CONFIG_ESP_WIFI_MGMT_SBUF_NUM=6
+# CONFIG_ESP_WIFI_AMPDU_TX_ENABLED is not set
+# CONFIG_ESP_WIFI_AMPDU_RX_ENABLED is not set
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192
+CONFIG_ESP_WIFI_TX_BA_WIN=3
+CONFIG_ESP_WIFI_RX_BA_WIN=3
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_USE_LABEL=y
+CONFIG_LWIP_IPV6=n
+CONFIG_LWIP_DHCP_OPTIONS_LEN=69
+CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS=4
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+# TLS record buffer, sized down from 16384.
+#
+# Measured: with the Lua runtime resident the heap has ~27 KB free but its
+# largest contiguous block is only ~7.7 KB (vs 57 KB with no Lua), and mbedTLS
+# needs contiguous memory -- so the handshake died with
+# MBEDTLS_ERR_SSL_ALLOC_FAILED while 27 KB was nominally free.
+#
+# 8 KB comfortably holds the certificate chains we talk to (Google's is ~4 KB).
+# The risk is a server sending a TLS record larger than this, which would fail
+# the connection; raise it back if that shows up.
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
+# Outbound TLS record size. Left at 1024.
+#
+# Raising it to 4096 to get fuller TCP segments made things worse, not better:
+# MBEDTLS_DYNAMIC_BUFFER allocates this buffer per connection, so the handshake
+# then needed 4437 contiguous bytes and failed outright with
+# MBEDTLS_ERR_SSL_ALLOC_FAILED where before it had merely been slow. On a heap
+# this fragmented, a smaller buffer that can always be obtained beats a larger
+# one that cannot.
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=1024
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# --- ESP-Claw slim profile -------------------------------------------------
+# The dominant saving here is in code, not Kconfig: BREEZY_SLIM makes
+# rgb_display skip the 36 KB graphics framebuffer it otherwise preallocates at
+# boot. The agent never enters graphics mode. See docs/claw.md.
+
+# Keep the FULL CA bundle.
+#
+# DEFAULT_CMN was tried to save memory and had to be reverted: Google's
+# generativelanguage.googleapis.com chain fails against the trimmed set with
+# "Certificate matched but signature verification failed" (mbedTLS 0x4290),
+# the usual cross-signed-root symptom. ESP-IDF 5.5 has no
+# MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY option to work around it.
+#
+# The savings that actually matter on this profile come from skipping the 36 KB
+# graphics framebuffer and dropping SSH, not from the bundle.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y

@@ -6,7 +6,9 @@
 #include "esp_log.h"
 #include "esp_console.h"
 #include "nvs_flash.h"
+#if !defined(BREEZY_SLIM)
 #include "host/ble_store.h"
+#endif
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,18 +18,24 @@
 #include "board_runtime.h"
 #include "rgb_display.h"
 #include "my_console_io.h"
+#if !defined(BREEZY_SLIM)
 #include "bt_keyboard.h"
+#endif
 #include "vterm.h"
 
 static const char *TAG = "main";
+#if !defined(BREEZY_SLIM)
 static bool s_bt_initialized = false;
+#endif
 enum { HELP_WIDTH = 40, HELP_DESC_INDENT = 2 };
 
 static int cmd_help(int argc, char **argv);
+#if !defined(BREEZY_SLIM)
 int cmd_btscan(int argc, char **argv);
 int cmd_btconnect(int argc, char **argv);
 static int cmd_btclear(int argc, char **argv);
 static int cmd_btstatus(int argc, char **argv);
+#endif
 static int cmd_vt(int argc, char **argv);
 static int cmd_keytest(int argc, char **argv);
 static int cmd_colortest(int argc, char **argv);
@@ -43,15 +51,19 @@ extern int cmd_wget_builtin_main(int argc, char **argv);
 extern int cmd_gzip_builtin_main(int argc, char **argv);
 extern int cmd_gunzip_builtin_main(int argc, char **argv);
 #if defined(BREEZY_BOARD_CARDPUTER)
+#if !defined(BREEZY_SLIM)
 extern int ssh_app_mode_run(ssh_session session);
+#endif
 #endif
 
 static const esp_console_cmd_t s_app_cmds[] = {
     { .command = "help", .help = "List all commands", .hint = NULL, .func = &cmd_help },
+#if !defined(BREEZY_SLIM)
     { .command = "btscan", .help = "Scan for BT keyboards", .hint = "[-v]", .func = &cmd_btscan },
     { .command = "btconnect", .help = "Reconnect saved keyboard", .func = &cmd_btconnect },
     { .command = "btclear", .help = "Clear saved BT devices", .func = &cmd_btclear },
     { .command = "btstatus", .help = "Show BT keyboard status", .func = &cmd_btstatus },
+#endif
     { .command = "vt", .help = "Switch VT", .func = &cmd_vt },
     { .command = "keytest", .help = "Keys test", .func = &cmd_keytest },
     { .command = "colortest", .help = "ANSI colors test", .func = &cmd_colortest },
@@ -70,10 +82,12 @@ static const esp_console_cmd_t s_app_cmds[] = {
 
 static const breezybox_help_entry_t s_app_help[] = {
     { "help", "help [command]", "Show command list or detailed help for one command.", NULL, "help\nhelp wifi\nhelp vi" },
+#if !defined(BREEZY_SLIM)
     { "btscan", "btscan [-v]", "Scan for Bluetooth keyboards and auto-connect when one is found.", "-v  verbose scan output", "btscan\nbtscan -v" },
     { "btconnect", "btconnect", "Reconnect to the previously saved keyboard.", NULL, "btconnect" },
     { "btclear", "btclear", "Clear saved Bluetooth device bonds.", NULL, "btclear" },
     { "btstatus", "btstatus", "Show Bluetooth keyboard status.", NULL, "btstatus" },
+#endif
     { "vt", "vt [n]", "Show or switch virtual terminal.", "n  terminal number", "vt\nvt 1" },
     { "keytest", "keytest", "Print raw keypresses until Ctrl+C.", NULL, "keytest" },
     { "colortest", "colortest", "Show ANSI color output samples.", NULL, "colortest" },
@@ -238,6 +252,7 @@ static int cmd_help(int argc, char **argv)
     return 0;
 }
 
+#if !defined(BREEZY_SLIM)
 static esp_err_t ensure_bt_initialized(void)
 {
     if (s_bt_initialized) {
@@ -315,6 +330,7 @@ static int cmd_btstatus(int argc, char **argv)
     }
     return 0;
 }
+#endif
 
 // DEBUG
 static int cmd_vt(int argc, char **argv)
@@ -441,7 +457,9 @@ void app_main(void)
         return;
     }
 
+#if !defined(BREEZY_SLIM)
     bt_keyboard_set_char_callback(my_console_bt_receive);
+#endif
 
     if (board_input_init(my_console_bt_receive) != ESP_OK) {
         ESP_LOGW(TAG, "%s input init failed", board_runtime_name());
@@ -450,7 +468,9 @@ void app_main(void)
     breezybox_set_extra_commands(s_app_cmds, sizeof(s_app_cmds) / sizeof(s_app_cmds[0]));
     breezybox_set_extra_help_entries(s_app_help, sizeof(s_app_help) / sizeof(s_app_help[0]));
 #if defined(BREEZY_BOARD_CARDPUTER)
+#if !defined(BREEZY_SLIM)
     breezybox_set_ssh_app_mode_runner(ssh_app_mode_run);
+#endif
 #endif
     breezybox_start_stdio(16384, 5);
 

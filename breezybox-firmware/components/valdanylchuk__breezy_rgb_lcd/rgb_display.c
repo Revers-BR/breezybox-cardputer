@@ -149,6 +149,29 @@ static void release_gfx_buffer(void)
     s_gfx_capacity_bytes = 0;
 }
 
+/*
+ * Hand the graphics framebuffer back, and take it again.
+ *
+ * The buffer is reserved at boot because the heap fragments within seconds and
+ * a 36 KB contiguous block never becomes available again. That reservation is
+ * also the largest single thing standing between the agent and the contiguous
+ * memory it needs, so claw releases it while running and reserves it again on
+ * exit. Re-reserving can fail if the heap fragmented meanwhile, in which case
+ * graphics needs a reboot -- but that is strictly better than never having it.
+ */
+void rgb_display_release_gfx(void)
+{
+    if (rgb_display_get_mode() == SM_TEXT) {
+        release_gfx_buffer();
+    }
+}
+
+bool rgb_display_reserve_gfx(void)
+{
+    return ensure_gfx_buffer(GFX_FB_150P_BYTES) == ESP_OK;
+}
+
+
 static void apply_backlight_level(uint8_t level)
 {
     board_set_backlight(level);
@@ -381,6 +404,16 @@ void rgb_display_init(void)
 
     // Reserve the lighter 150p graphics framebuffer up front so later Lua/script
     // activity does not fragment the heap before first graphics-mode entry.
+    //
+    // Reserved on every profile, including the slim ESP-Claw one.
+    //
+    // Skipping it there looked like the single largest saving available on a
+    // PSRAM-less board, and ensure_gfx_buffer() does allocate on demand -- but
+    // on demand is too late. The heap fragments within seconds of boot, and a
+    // 36 KB contiguous block is never available again: measured free=72328
+    // with largest=31744, so the memory that was "saved" is unusable anyway.
+    // Taking it here, while the heap is still whole, is what makes graphics
+    // possible at all.
     if (ensure_gfx_buffer(GFX_FB_150P_BYTES) != ESP_OK) {
         ESP_LOGW(TAG, "150p graphics buffer was not preallocated at startup");
     }

@@ -13,9 +13,27 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+#include "nvs.h"
+#include "nvs_flash.h"
+
 #define INIT_SCRIPT BREEZYBOX_MOUNT_POINT "/init.sh"
 #define DEFAULT_INIT "echo Welcome to BreezyBox!\n"
-#define HISTORY_FILE BREEZYBOX_MOUNT_POINT "/.history"
+/*
+ * Shell history.
+ *
+ * The SD card is preferred because `make flash` rewrites the LittleFS
+ * partition and takes /root with it -- history is exactly the sort of thing
+ * that is annoying to lose to a reflash. Internal flash is the fallback when
+ * there is no card, and `history off` disables persistence entirely.
+ *
+ * The on/off preference lives in NVS rather than in either file, since that
+ * survives a reflash too and must be readable before we know where to look.
+ */
+#define HISTORY_FILE_FLASH BREEZYBOX_MOUNT_POINT "/.history"
+#define HISTORY_FILE_SD    BREEZYBOX_SD_MOUNT_POINT "/.breezy_history"
+#define HISTORY_NVS_NS     "breezy_hist"
+#define HISTORY_NVS_KEY    "enabled"
+#define HISTORY_MAX_LINES  100
 
 static esp_console_repl_t *s_repl = NULL;
 static const esp_console_cmd_t *s_extra_cmds = NULL;
@@ -60,7 +78,7 @@ static const breezybox_help_entry_t s_core_help[] = {
     { "env", "env", "Print environment variables.", NULL, "env" },
     { "export", "export [NAME=VALUE...]", "Set or print environment variables.", NULL, "export FOO=bar\nexport FOO" },
     { "unset", "unset <name...>", "Remove environment variables.", NULL, "unset FOO" },
-    { "history", "history", "Show command history.", NULL, "history" },
+    { "history", "history [clear|on|off|path]", "Show command history, or control whether it is saved. History is kept on the SD card when one is present, so it survives reflashing; otherwise it goes to /root and is wiped by `make flash`.", "clear  forget everything\non     save history (default)\noff    stop saving\npath   show where it is kept", "history\nhistory path\nhistory off" },
     { "source", "source <script>", "Run a shell script.", NULL, "source /root/init.sh" },
     { ".", ". <script>", "Run a shell script.", NULL, ". /root/init.sh" },
     { "true", "true", "Return success.", NULL, "true" },
@@ -74,9 +92,12 @@ static const breezybox_help_entry_t s_core_help[] = {
     { "wifi", "wifi <scan|connect|disconnect|status|forget>", "WiFi management commands.", "connect [ssid] [password]\nIf ssid is omitted, use saved credentials.", "wifi scan\nwifi connect MySSID secret\nwifi connect\nwifi status" },
     { "ping", "ping [-c count] [-W timeout_ms] <host>", "Send ICMP echo requests to a host.", "-c count       number of packets\n-W timeout_ms  timeout per packet in milliseconds", "ping example.com\nping -c 2 1.1.1.1\nping -W 2000 google.com" },
     { "lua", "lua [shell|-e <chunk>|<script.lua> [args...]]", "Run embedded Lua scripts or open a Lua REPL.", "shell         open the interactive Lua REPL\n-e <chunk>    run a one-line Lua chunk\n<script.lua>  run a Lua script from shared storage", "lua\nlua shell\nlua -e 'print(2+2)'\nlua /root/apps/demo.lua" },
+    { "claw", "claw [ask|session|config|stats] ...", "On-device AI agent. Talks to Anthropic, OpenAI or Gemini over TLS and streams the reply. Run with no arguments for an interactive session.", "(no args)             interactive session\nask [-v] <question>   ask a single question\nsession new|list|show|rm\nconfig show           list settings\nconfig set <k> <v>    change a setting\nstats                 status and memory", "claw\nclaw config set backend gemini\nclaw config set gemini.key AIza...\nclaw ask \"what board am I?\"\nclaw ask -v \"hello\"" },
+#if !defined(BREEZY_SLIM)
     { "ssh", "ssh [-p port] [-l user] [-pw password] <host|alias> [command...]", "Open an SSH session or run a remote command.", "-p port       remote SSH port\n-l user       remote username\n-pw password  password auth for this run\nCtrl+Q        disconnect interactive session\nSaved aliases resolve via sshcfg", "ssh user@example.com\nssh pi2w\nssh -p 2222 host uname -a" },
     { "sshcfg", "sshcfg <add|list|show|rm> ...", "Manage saved SSH host aliases.", "add <name> <host|user@host> [-l user] [-p port] [-pw password]\nlist\nshow <name>\nrm <name>", "sshcfg add pi2w pi@pi2w\nsshcfg add lab labhost -l pi -pw secret\nsshcfg list\nssh pi2w" },
     { "scp", "scp [-P port] [-l user] [-pw password] <src> <dst>", "Copy a single file to or from an SSH host.", "-P port       remote SSH port\n-l user       remote username\n-pw password  password auth for this run\nRemote paths use [user@]host:/path", "scp /root/file.txt user@example.com:/tmp/file.txt\nscp user@example.com:/tmp/file.txt /sd/file.txt" },
+#endif
     { "httpd", "httpd [dir] [-p port]", "Start the HTTP file server.", "-p port  listen port", "httpd /sd -p 8080" },
 };
 
@@ -612,7 +633,7 @@ static const esp_console_cmd_t s_breezybox_cmds[] = {
     { .command = "env",   .help = "Print environment",       .hint = NULL,        .func = &cmd_env },
     { .command = "export", .help = "Set environment",        .hint = "[NAME=VALUE...]", .func = &cmd_export },
     { .command = "unset", .help = "Unset environment",       .hint = "<name...>", .func = &cmd_unset },
-    { .command = "history", .help = "Show command history",  .hint = NULL,        .func = &cmd_history },
+    { .command = "history", .help = "Show or manage command history", .hint = "[clear|on|off|path]", .func = &cmd_history },
     { .command = "source", .help = "Run script file",        .hint = "<script>",  .func = &cmd_source },
     { .command = ".",     .help = "Run script file",         .hint = "<script>",  .func = &cmd_source },
     { .command = "true",  .help = "Return success",          .hint = NULL,        .func = &cmd_true },
@@ -626,12 +647,15 @@ static const esp_console_cmd_t s_breezybox_cmds[] = {
     { .command = "wifi",  .help = "WiFi commands",           .hint = "<scan|connect|disconnect|status|forget>", .func = &cmd_wifi },
     { .command = "ping",  .help = "Ping a host",             .hint = "[-c count] [-W timeout_ms] <host>", .func = &cmd_ping },
     { .command = "lua",   .help = "Run embedded Lua",        .hint = "[shell|-e <chunk>|<script.lua> [args...]]", .func = &cmd_lua },
+    { .command = "claw",  .help = "On-device AI agent",      .hint = "[ask|session|config|stats] ...", .func = &cmd_claw },
 #ifdef BREEZY_BOARD_CARDPUTER
     { .command = "ccleste", .help = "Run the built-in Celeste Classic / Scrolleste port", .hint = NULL, .func = &cmd_ccleste },
 #endif
+#if !defined(BREEZY_SLIM)
     { .command = "ssh",   .help = "SSH client",              .hint = "[-p port] [-l user] [-pw password] <host|alias> [command...]", .func = &cmd_ssh },
     { .command = "sshcfg", .help = "Manage saved SSH hosts", .hint = "<add|list|show|rm> ...", .func = &cmd_sshcfg },
     { .command = "scp",   .help = "SSH copy client",         .hint = "[-P port] [-l user] [-pw password] <src> <dst>", .func = &cmd_scp },
+#endif
     { .command = "httpd", .help = "HTTP file server",        .hint = "[dir] [-p port]", .func = &cmd_httpd },
 };
 
@@ -641,6 +665,14 @@ const esp_console_cmd_t *breezybox_get_core_commands(size_t *count)
         *count = sizeof(s_breezybox_cmds) / sizeof(s_breezybox_cmds[0]);
     }
     return s_breezybox_cmds;
+}
+
+const esp_console_cmd_t *breezybox_get_extra_commands(size_t *count)
+{
+    if (count) {
+        *count = s_extra_cmd_count;
+    }
+    return s_extra_cmds;
 }
 
 void breezybox_set_extra_commands(const esp_console_cmd_t *cmds, size_t count)
@@ -700,6 +732,88 @@ static esp_err_t breezybox_init_common(void)
 // ============ REPL Implementations ============
 
 // Linenoise-based REPL task for stdio mode
+static char s_history_path[80];
+static int  s_history_enabled = -1;   /* -1 = not yet read from NVS */
+
+static bool history_enabled(void)
+{
+    if (s_history_enabled >= 0) {
+        return s_history_enabled != 0;
+    }
+    s_history_enabled = 1;                     /* on unless told otherwise */
+    nvs_handle_t h;
+    if (nvs_open(HISTORY_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        uint8_t v = 1;
+        if (nvs_get_u8(h, HISTORY_NVS_KEY, &v) == ESP_OK) {
+            s_history_enabled = v ? 1 : 0;
+        }
+        nvs_close(h);
+    }
+    return s_history_enabled != 0;
+}
+
+bool breezybox_history_set_enabled(bool on)
+{
+    nvs_handle_t h;
+    if (nvs_open(HISTORY_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return false;
+    }
+    esp_err_t err = nvs_set_u8(h, HISTORY_NVS_KEY, on ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    if (err != ESP_OK) {
+        return false;
+    }
+    s_history_enabled = on ? 1 : 0;
+    s_history_path[0] = '\0';                  /* re-resolve */
+    return true;
+}
+
+/* Copy an existing flash history onto the card the first time it is used, so
+ * switching does not start from an empty list. */
+static void history_migrate_to_sd(void)
+{
+    struct stat st;
+    if (stat(HISTORY_FILE_SD, &st) == 0 || stat(HISTORY_FILE_FLASH, &st) != 0) {
+        return;
+    }
+    FILE *in = fopen(HISTORY_FILE_FLASH, "rb");
+    if (!in) {
+        return;
+    }
+    FILE *out = fopen(HISTORY_FILE_SD, "wb");
+    if (!out) {
+        fclose(in);
+        return;
+    }
+    char buf[256];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        fwrite(buf, 1, n, out);
+    }
+    fclose(in);
+    fclose(out);
+}
+
+const char *breezybox_history_path(void)
+{
+    if (!history_enabled()) {
+        return NULL;
+    }
+    if (s_history_path[0]) {
+        return s_history_path;
+    }
+    if (breezybox_sd_mounted()) {
+        history_migrate_to_sd();
+        snprintf(s_history_path, sizeof(s_history_path), "%s", HISTORY_FILE_SD);
+    } else {
+        snprintf(s_history_path, sizeof(s_history_path), "%s", HISTORY_FILE_FLASH);
+    }
+    return s_history_path;
+}
+
 static void stdio_repl_task(void *arg)
 {
     // Skip probe for now - our VFS console handles terminal queries internally
@@ -710,8 +824,13 @@ static void stdio_repl_task(void *arg)
     linenoiseSetMultiLine(1);
     linenoiseSetCompletionCallback(&breezybox_get_completion);
     linenoiseSetHintsCallback((linenoiseHintsCallback *)&esp_console_get_hint);
-    linenoiseHistorySetMaxLen(100);
-    linenoiseHistoryLoad(HISTORY_FILE);
+    linenoiseHistorySetMaxLen(HISTORY_MAX_LINES);
+    {
+        const char *hp = breezybox_history_path();
+        if (hp) {
+            linenoiseHistoryLoad(hp);
+        }
+    }
     
     printf("\nType 'help' to get the list of commands.\n");
     
@@ -726,7 +845,15 @@ static void stdio_repl_task(void *arg)
         // Skip empty lines
         if (strlen(line) > 0) {
             linenoiseHistoryAdd(line);
-            linenoiseHistorySave(HISTORY_FILE);
+            {
+                const char *hp = breezybox_history_path();
+                if (hp) {
+                    /* Failure here is not worth interrupting the shell for:
+                     * a missing card or a full disk should not stop you
+                     * running commands. */
+                    linenoiseHistorySave(hp);
+                }
+            }
             breezybox_exec(line);
         }
         

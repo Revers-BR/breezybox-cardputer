@@ -2,7 +2,10 @@
 
 #include "esp_err.h"
 #include "esp_console.h"
+#if !defined(BREEZY_SLIM)
 #include <libssh/libssh.h>
+#endif
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -47,10 +50,18 @@ esp_err_t breezybox_start_stdio(size_t stack_size, uint32_t priority);
  */
 esp_err_t breezybox_register_commands(void);
 const esp_console_cmd_t *breezybox_get_core_commands(size_t *count);
+const esp_console_cmd_t *breezybox_get_extra_commands(size_t *count);
 void breezybox_set_extra_commands(const esp_console_cmd_t *cmds, size_t count);
 void breezybox_set_extra_help_entries(const breezybox_help_entry_t *entries, size_t count);
 const esp_console_cmd_t *breezybox_find_command(const char *cmd);
 const breezybox_help_entry_t *breezybox_find_help_entry(const char *cmd);
+
+/* Where shell history is kept, or NULL when saving is disabled. Prefers the SD
+ * card, which survives reflashing. */
+const char *breezybox_history_path(void);
+
+/* Turn history saving on or off; persisted in NVS, which survives reflashing. */
+bool breezybox_history_set_enabled(bool on);
 
 /**
  * @brief Force-export symbols for ELF runtime linking
@@ -74,4 +85,6 @@ void breezybox_export_symbols(void);
  */
 int breezy_http_download(const char *url, const char *dest_path);
 
+#if !defined(BREEZY_SLIM)
 void breezybox_set_ssh_app_mode_runner(int (*runner)(ssh_session session));
+#endif

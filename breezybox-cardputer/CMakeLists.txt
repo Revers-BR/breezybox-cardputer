@@ -2,12 +2,20 @@ set(BREEZYBOX_CARDPUTER_REQUIRES
     console littlefs spiffs fatfs nvs_flash esp_wifi esp_netif esp_http_server
     esp_http_client esp-tls json vfs mbedtls zlib breezy_term
     valdanylchuk__breezy_rgb_lcd driver esp_driver_sdspi esp_driver_spi
-    esp_driver_uart esp_driver_i2s esp_driver_ledc esp_adc sdmmc lwip
+    esp_driver_uart esp_driver_i2s esp_driver_ledc esp_driver_rmt esp_adc sdmmc lwip
     libssh_esp32 app_update esp_timer
 )
 
-if(NOT BREEZY_BOARD STREQUAL "sticks3")
+if(NOT BREEZY_BOARD STREQUAL "sticks3" AND NOT BREEZY_BOARD STREQUAL "cardputer-claw")
     list(APPEND BREEZYBOX_CARDPUTER_REQUIRES elf_loader)
+endif()
+
+# Slim ESP-Claw profile: SSH is the largest droppable tenant after Bluetooth.
+if(BREEZY_BOARD STREQUAL "cardputer-claw")
+    list(REMOVE_ITEM BREEZYBOX_CARDPUTER_REQUIRES libssh_esp32)
+    set(BREEZYBOX_SSH_SRCS "")
+else()
+    set(BREEZYBOX_SSH_SRCS "cmd/ssh.c")
 endif()
 
 idf_component_register(
@@ -39,9 +47,27 @@ idf_component_register(
         "cmd/eget.c"
         "cmd/ping.c"
         "cmd/lua.c"
-        "cmd/ssh.c"
+        "cmd/claw.c"
+        "claw/claw_agent.c"
+        "claw/claw_backend.c"
+        "claw/claw_backend_anthropic.c"
+        "claw/claw_backend_gemini.c"
+        "claw/claw_backend_openai.c"
+        "claw/claw_config.c"
+        "claw/claw_memory.c"
+        "claw/claw_json_write.c"
+        "claw/claw_models.c"
+        "claw/claw_prompt.c"
+        "claw/claw_session.c"
+        "claw/claw_sse.c"
+        "claw/claw_text.c"
+        "claw/claw_tools.c"
+        "claw/claw_util.c"
+        "cmd/lua_https.c"
+        "cmd/lua_led.c"
         "third_party/lua/onelua.c"
-    INCLUDE_DIRS "include" "third_party/lua"
+        ${BREEZYBOX_SSH_SRCS}
+    INCLUDE_DIRS "include" "third_party/lua" "claw"
     PRIV_INCLUDE_DIRS "../breezybox-firmware/main"
     REQUIRES ${BREEZYBOX_CARDPUTER_REQUIRES}
 )

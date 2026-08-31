@@ -1,0 +1,42 @@
+{
+  "id": "espclaw",
+  "name": "ESP-Claw",
+  "version": "0.1.0",
+  "type": "lua-app",
+  "entry": "/root/bin/claw",
+  "description": "On-device AI agent for Cardputer / Cardputer ADV. Anthropic, OpenAI and Gemini backends, streamed over TLS, transcript on the SD card.",
+  "files": [
+    {
+      "source": "root/bin/claw",
+      "target": "/root/bin/claw"
+    },
+    {
+      "source": "root/apps/espclaw/main.lua",
+      "target": "/root/apps/espclaw/main.lua"
+    },
+    {
+      "source": "root/apps/espclaw/config.lua",
+      "target": "/root/apps/espclaw/config.lua"
+    },
+    {
+      "source": "root/apps/espclaw/sse.lua",
+      "target": "/root/apps/espclaw/sse.lua"
+    },
+    {
+      "source": "root/apps/espclaw/backend_anthropic.lua",
+      "target": "/root/apps/espclaw/backend_anthropic.lua"
+    },
+    {
+      "source": "root/apps/espclaw/backend_openai.lua",
+      "target": "/root/apps/espclaw/backend_openai.lua"
+    },
+    {
+      "source": "root/apps/espclaw/backend_gemini.lua",
+      "target": "/root/apps/espclaw/backend_gemini.lua"
+    },
+    {
+      "source": "root/apps/espclaw/ca/gts_root_r1.pem",
+      "target": "/root/apps/espclaw/ca/gts_root_r1.pem"
+    }
+  ]
+}
