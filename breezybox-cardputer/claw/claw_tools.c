@@ -920,13 +920,21 @@ static bool run_lua_run(const cJSON *args, char *out, size_t out_len)
      * Lua error always starts with "lua: ", so it is unambiguous.
      */
     bool failed = strncmp(out, "lua:", 4) == 0 || strstr(out, "\nlua:") != NULL;
-    if (failed && used + 160 < out_len) {
+    /*
+     * "Now, in this turn": Gemini would otherwise reply "I'll try to fix it",
+     * which ends the turn and leaves the user typing "continue". The lua_api
+     * pointer is for the common case of guessing a breezy.* return shape --
+     * e.g. indexing https.request's status number as if it were a table.
+     */
+    if (failed && used + 280 < out_len) {
         memmove(out + 56, out, used + 1);
         memcpy(out, "SCRIPT FAILED - it was saved, but it does not work yet:\n", 56);
         used += 56;
         used += (size_t)snprintf(out + used, out_len - used,
-                                 "\nFix the error and run it again. Do not tell "
-                                 "the user it worked.\n");
+                                 "\nFix the error and run it again now, in this "
+                                 "turn. If a breezy.* call returned something "
+                                 "unexpected, check it with lua_api module=<name> "
+                                 "first. Do not tell the user it worked.\n");
     }
 
     /*
