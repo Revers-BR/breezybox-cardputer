@@ -12,6 +12,33 @@ CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_INTERNAL=y
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
 CONFIG_BT_NIMBLE_HID_SERVICE=y
+# NimBLE buffer pools, cut from the IDF defaults (MSYS_2 24, ACL 24, EVT 30,
+# MAX_ACT 6) which are sized for several connections. This build makes one:
+# a HID keyboard sending 8-byte reports. At the defaults the host's pools need
+# ~21 KB in blocks up to ~8 KB, and on a booted full image btconnect failed
+# with "hci inits failed" at free=54024 largest=16384 (after the controller had
+# already released its memory). These sizes need ~9 KB.
+CONFIG_BT_NIMBLE_MSYS_2_BLOCK_COUNT=8
+CONFIG_BT_NIMBLE_TRANSPORT_ACL_FROM_LL_COUNT=8
+CONFIG_BT_NIMBLE_TRANSPORT_EVT_COUNT=16
+CONFIG_BT_CTRL_BLE_MAX_ACT=3
+CONFIG_BT_NIMBLE_MSYS_1_BLOCK_COUNT=8
+CONFIG_BT_CTRL_SCAN_DUPL_CACHE_SIZE=20
+# Features a keyboard host does not use: keyboards use legacy advertising, we
+# never advertise, and DTM is an RF test mode. The peripheral role has to stay:
+# the GATT server depends on it, the services menu depends on the GATT server,
+# and esp_hid compiles nimble_hidh.c only when CONFIG_BT_NIMBLE_HID_SERVICE is
+# set.
+# CONFIG_BT_NIMBLE_ROLE_BROADCASTER is not set
+# CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT is not set
+# CONFIG_BT_NIMBLE_DTM_MODE_TEST is not set
+# CONFIG_BT_CTRL_DTM_ENABLE is not set
+# Run the BLE controller from flash rather than ROM/IRAM. On the S3, IRAM code
+# and heap share one SRAM pool. Measured: 12 KB more heap at boot, and BT init
+# needs 54.7 KB instead of 59.1 KB. Cost: BT
+# pauses while internal flash is erased (LittleFS or NVS writes), which a
+# keyboard link rides out within its supervision timeout.
+CONFIG_BT_CTRL_RUN_IN_FLASH_ONLY=y
 CONFIG_ESP_TLS_INSECURE=y
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=512
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
