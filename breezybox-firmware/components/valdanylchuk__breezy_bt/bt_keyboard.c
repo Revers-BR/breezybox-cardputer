@@ -4,6 +4,7 @@
 
 #include "bt_keyboard.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -54,6 +55,7 @@ static volatile int s_connect_pending = 0;
 
 // Connection task & Timer
 static TaskHandle_t s_connect_task = NULL;
+#define BT_CONNECT_TASK_STACK 5120
 static TimerHandle_t s_boot_timer = NULL;
 static volatile int s_connect_in_progress = 0;
 
@@ -408,6 +410,8 @@ static void connect_task(void *arg) {
                 start_background_scan();
             }
         }
+        ESP_LOGI(TAG, "connect task stack unused: %u of %d bytes",
+                 (unsigned)uxTaskGetStackHighWaterMark(NULL), BT_CONNECT_TASK_STACK);
     }
 }
 
@@ -507,8 +511,19 @@ found_device:
 
 // ============ Scanning Functions ============
 
+// Local patch: scanning before the host has synced with the controller makes
+// ble_gap_disc() dereference an unset identity address (LoadProhibited). The
+// first btconnect/btscan after init always did this. Defer instead: on_sync
+// starts the reconnect scan when a keyboard is saved, and runs a deferred
+// general scan otherwise.
+static int s_general_scan_on_sync = 0;
+
 static void start_background_scan(void) {
     if (s_connected || s_is_scanning || !s_have_target) return;
+    if (!ble_hs_synced()) {
+        ESP_LOGI(TAG, "BLE host not synced yet; scan will start on sync");
+        return;
+    }
 
     if (s_connect_in_progress) {
         ESP_LOGW(TAG, "Cancelling stuck connection before scanning...");
@@ -536,6 +551,11 @@ static void start_background_scan(void) {
 
 static void start_general_scan(void) {
     if (s_connected) return;
+    if (!ble_hs_synced()) {
+        ESP_LOGI(TAG, "BLE host not synced yet; scan will start on sync");
+        s_general_scan_on_sync = 1;
+        return;
+    }
 
     if (s_is_scanning) {
         ble_gap_disc_cancel();
@@ -720,6 +740,10 @@ static void on_sync(void) {
             xTimerStart(s_boot_timer, 0);
         }
     }
+    if (s_general_scan_on_sync) {
+        s_general_scan_on_sync = 0;
+        start_general_scan();
+    }
 }
 
 static void on_reset(int reason) {
@@ -732,6 +756,13 @@ static void host_task(void *p) {
 }
 
 // ============ Init ============
+
+static void log_heap(const char *step)
+{
+    ESP_LOGI(TAG, "init %s: free %u, largest %u", step,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+}
 
 esp_err_t bt_keyboard_init(void) {
     // Export symbols for ELF binaries
@@ -754,20 +785,48 @@ esp_err_t bt_keyboard_init(void) {
 
     load_target_from_nvs();
 
-    xTaskCreate(connect_task, "hidh_connect", 8192, NULL, 5, &s_connect_task);
-
+    // Local patch: every step is checked, and a failure undoes the earlier
+    // ones. Upstream ignored these results, so an out-of-memory
+    // nimble_port_init() went on to ble_gap_event_listener_register() against
+    // a host that was never set up and panicked (LoadProhibited).
+    //
+    // The connect task is created first because its stack is the largest
+    // single block BT asks for; NimBLE's pools are small blocks (see
+    // sdkconfig.defaults.cardputer) and fit in what is left. The stack was
+    // 8192 upstream; the deepest path is esp_hidh_dev_open() -> GATT discovery
+    // (~1.3 KB of result arrays) plus logging. The high-water mark is logged
+    // after each connect so this can be checked.
+    log_heap("start");
     s_boot_timer = xTimerCreate("bt_boot", pdMS_TO_TICKS(100), pdFALSE, NULL, boot_timer_cb);
+    if (s_boot_timer == NULL ||
+        xTaskCreate(connect_task, "hidh_connect", BT_CONNECT_TASK_STACK, NULL, 5, &s_connect_task) != pdPASS) {
+        ESP_LOGE(TAG, "no memory for connect task (%d byte stack)", BT_CONNECT_TASK_STACK);
+        ret = ESP_ERR_NO_MEM;
+        goto fail_task;
+    }
 
+    // nimble_port_init() releases the controller itself when it fails.
+    log_heap("after connect task");
     esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    nimble_port_init();
+    ret = nimble_port_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nimble_port_init failed: %s", esp_err_to_name(ret));
+        goto fail_task;
+    }
     ble_store_config_init();
     ble_svc_gap_device_name_set("ESP32-Console");
 
+    log_heap("after NimBLE");
     esp_hidh_config_t hcfg = {
         .callback = hidh_callback,
         .event_stack_size = 4096,
     };
-    esp_hidh_init(&hcfg);
+    ret = esp_hidh_init(&hcfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_hidh_init failed: %s", esp_err_to_name(ret));
+        nimble_port_deinit();
+        goto fail_task;
+    }
 
     ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
     ble_hs_cfg.sm_bonding = 1;
@@ -781,7 +840,20 @@ esp_err_t bt_keyboard_init(void) {
 
     ble_gap_event_listener_register(&s_gap_listener, gap_event_listener, NULL);
 
+    log_heap("after HID host");
     nimble_port_freertos_init(host_task);
+    log_heap("after host task");
 
     return ESP_OK;
+
+fail_task:
+    if (s_connect_task) {
+        vTaskDelete(s_connect_task);
+        s_connect_task = NULL;
+    }
+    if (s_boot_timer) {
+        xTimerDelete(s_boot_timer, 0);
+        s_boot_timer = NULL;
+    }
+    return ret;
 }

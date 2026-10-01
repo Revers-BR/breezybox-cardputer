@@ -5,6 +5,7 @@
 #include "driver/usb_serial_jtag_vfs.h"
 #include "esp_log.h"
 #include "esp_console.h"
+#include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #if !defined(BREEZY_SLIM)
 #include "host/ble_store.h"
@@ -253,15 +254,33 @@ static int cmd_help(int argc, char **argv)
 }
 
 #if !defined(BREEZY_SLIM)
+/* bt_keyboard_init() measured at 54.7 KB, plus room for the connection. */
+#define BT_INIT_MIN_FREE (60 * 1024)
+
 static esp_err_t ensure_bt_initialized(void)
 {
     if (s_bt_initialized) {
         return ESP_OK;
     }
 
+    /* The controller allocates from its own task after esp_bt_controller_enable()
+     * has returned OK, so a shortfall there cannot be caught: it asserts and the
+     * device reboots. Measured cost of a full init is ~55 KB; refuse up front. */
+    size_t free_now = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (free_now < BT_INIT_MIN_FREE) {
+        printf("Not enough memory for Bluetooth: %u KB free, needs %u KB.\n",
+               (unsigned)(free_now / 1024), (unsigned)(BT_INIT_MIN_FREE / 1024));
+        if (breezybox_wifi_initialized()) {
+            printf("WiFi holds ~33 KB. Run 'wifi disconnect' first.\n");
+        }
+        return ESP_ERR_NO_MEM;
+    }
+
     esp_err_t err = bt_keyboard_init();
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "BT init failed, err=%s", esp_err_to_name(err));
+        printf("BT init failed: %s (free=%u largest=%u)\n", esp_err_to_name(err),
+               (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         return err;
     }
 
@@ -273,7 +292,6 @@ static esp_err_t ensure_bt_initialized(void)
 int cmd_btscan(int argc, char **argv) {
     int verbose = (argc > 1 && strcmp(argv[1], "-v") == 0);
     if (ensure_bt_initialized() != ESP_OK) {
-        printf("BT init failed\n");
         return 1;
     }
     printf("Scanning for Bluetooth keyboards...\n");
@@ -287,7 +305,6 @@ int cmd_btscan(int argc, char **argv) {
 // Command Wrapper
 int cmd_btconnect(int argc, char **argv) {
     if (ensure_bt_initialized() != ESP_OK) {
-        printf("BT init failed\n");
         return 1;
     }
     if (bt_keyboard_connected()) {
