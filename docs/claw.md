@@ -293,6 +293,11 @@ reloaded text overrides
 a firmware update carrying better wording still takes effect. Overriding is a
 deliberate act, and deleting a file returns that text to the built-in version.
 
+**A dumped file freezes its text.** `claw text dump` writes complete copies,
+and while they are on the card no firmware update can change that text. Keep
+only what you edited: delete the files you did not change, and the keys you
+did not change from the ones you did. `claw text status` lists what is active.
+
 **Fallback is per key, not per file.** A `tools.json` missing a tool, or a
 `messages.json` missing an id, falls back for that key alone. A malformed file
 falls back entirely and says so in `claw text status`.
