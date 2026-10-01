@@ -1,6 +1,8 @@
 #include "breezy_cmd.h"
+#include "breezybox.h"
 #include "breezy_vfs.h"
 #include "esp_wifi.h"
+#include "esp_heap_caps.h"
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
@@ -114,6 +116,38 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
     }
 }
 
+bool breezybox_wifi_initialized(void)
+{
+    return s_wifi_initialized;
+}
+
+/* Unload everything `wifi connect` set up, not only the association:
+ * driver, STA netif and the default event loop (whose task has a 6 KB stack).
+ * Together they hold ~33 KB, which is the difference between Bluetooth fitting
+ * and not. `wifi connect` rebuilds them; lwIP itself cannot be deinitialised
+ * and stays. Also used when init fails partway, so a failed `wifi connect`
+ * does not leave the netif and event loop behind. */
+static void wifi_teardown(void)
+{
+    esp_wifi_stop();
+    esp_wifi_deinit();
+    s_wifi_initialized = false;
+    if (s_handlers_registered) {
+        esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler);
+        esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler);
+        s_handlers_registered = false;
+    }
+    if (s_netif_ready) {
+        esp_netif_destroy_default_wifi(s_netif);
+        s_netif = NULL;
+        s_netif_ready = false;
+    }
+    if (s_event_loop_ready) {
+        esp_event_loop_delete_default();
+        s_event_loop_ready = false;
+    }
+}
+
 static esp_err_t wifi_init_once(void)
 {
     if (s_wifi_initialized) return ESP_OK;
@@ -136,7 +170,10 @@ static esp_err_t wifi_init_once(void)
 
     if (!s_netif_ready) {
         s_netif = esp_netif_create_default_wifi_sta();
-        if (!s_netif) return ESP_FAIL;
+        if (!s_netif) {
+            wifi_teardown();
+            return ESP_FAIL;
+        }
         s_netif_ready = true;
     }
 
@@ -151,6 +188,7 @@ static esp_err_t wifi_init_once(void)
     cfg.amsdu_tx_enable = 0;
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK) {
+        wifi_teardown();
         return ret;
     }
 
@@ -162,22 +200,19 @@ static esp_err_t wifi_init_once(void)
 
     ret = esp_wifi_set_mode(WIFI_MODE_STA);
     if (ret != ESP_OK) {
-        (void)esp_wifi_stop();
-        (void)esp_wifi_deinit();
+        wifi_teardown();
         return ret;
     }
 
     ret = esp_wifi_start();
     if (ret != ESP_OK) {
-        (void)esp_wifi_stop();
-        (void)esp_wifi_deinit();
+        wifi_teardown();
         return ret;
     }
 
     ret = esp_wifi_set_ps(WIFI_PS_NONE);
     if (ret != ESP_OK) {
-        (void)esp_wifi_stop();
-        (void)esp_wifi_deinit();
+        wifi_teardown();
         return ret;
     }
 
@@ -282,10 +317,20 @@ static esp_err_t load_credentials(char *ssid, size_t ssid_len, char *password, s
 
 // ============ Commands ============
 
+static void wifi_report_init_failure(esp_err_t err)
+{
+    printf("WiFi init failed: %s (%u KB free)\n", esp_err_to_name(err),
+           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024));
+    if (err == ESP_ERR_NO_MEM) {
+        printf("WiFi needs ~33 KB. Bluetooth, if started, holds ~55 KB until reboot.\n");
+    }
+}
+
 static int wifi_scan(void)
 {
-    if (wifi_init_once() != ESP_OK) {
-        printf("WiFi init failed\n");
+    esp_err_t init_err = wifi_init_once();
+    if (init_err != ESP_OK) {
+        wifi_report_init_failure(init_err);
         return 1;
     }
 
@@ -325,8 +370,9 @@ static int wifi_scan(void)
 
 static int wifi_connect(const char *ssid, const char *password)
 {
-    if (wifi_init_once() != ESP_OK) {
-        printf("WiFi init failed\n");
+    esp_err_t init_err = wifi_init_once();
+    if (init_err != ESP_OK) {
+        wifi_report_init_failure(init_err);
         return 1;
     }
 
@@ -432,6 +478,7 @@ static int wifi_disconnect_cmd(void)
     }
 
     esp_wifi_disconnect();
+    wifi_teardown();
     s_connected = false;
     s_got_ip = false;
     printf("Disconnected\n");

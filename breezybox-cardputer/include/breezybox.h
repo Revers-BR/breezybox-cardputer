@@ -63,6 +63,10 @@ const char *breezybox_history_path(void);
 /* Turn history saving on or off; persisted in NVS, which survives reflashing. */
 bool breezybox_history_set_enabled(bool on);
 
+/* True while the WiFi driver is loaded (after `wifi connect`, until
+ * `wifi disconnect`). It holds ~38 KB of heap in that state. */
+bool breezybox_wifi_initialized(void);
+
 /**
  * @brief Force-export symbols for ELF runtime linking
  * 
