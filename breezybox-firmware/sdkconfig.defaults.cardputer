@@ -61,6 +61,14 @@ CONFIG_ESP_WIFI_RX_IRAM_OPT=n
 CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_USE_LABEL=y
+# 512-byte FAT sectors. SD cards use 512-byte sectors, but at the 4096 default
+# every FAT buffer is 4 KB: the volume window plus one per max_files, all
+# allocated when the card mounts (~37 KB for max_files=8, 7/8 of it unused).
+# 4096 only matters for a wear-levelled FAT-on-flash /root, which this
+# partition table does not have (LittleFS formats rather than falling back),
+# so WL follows to keep that path consistent.
+CONFIG_FATFS_SECTOR_512=y
+CONFIG_WL_SECTOR_SIZE_512=y
 CONFIG_LWIP_IPV6=n
 CONFIG_LWIP_DHCP_OPTIONS_LEN=69
 CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS=4
