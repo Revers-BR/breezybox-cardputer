@@ -596,8 +596,14 @@ keep the connection (see [Connection reuse](#connection-reuse)); a large
 [Thinking](#thinking-gemini)). A large request size in the summary line means a
 long session: `/new`.
 
-**Handshake fails with an allocation error** — you are probably on the stock
-`cardputer` build. Check `claw stats`: it prints the profile and build time.
+**Handshake or request fails with an allocation error** — the heap ran out
+during the request. It shows up as `PK verify failed with error 0x4290` (an
+allocation failure inside the certificate check, not a bad certificate),
+`wifi:m f null` (WiFi could not allocate a packet buffer, so replies stall
+until the 60 s timeout), or a reset while writing to the card. `claw stats`
+prints the heap. The usual cause is WiFi and Bluetooth both being up: about
+30 KB is left after a round, against ~68 KB that a request peaks at. Reboot
+and leave Bluetooth off for long sessions, or `/new` to shrink the request.
 
 **`warning - CA file missing, using cert bundle instead`** on Gemini — the
 pinned root is not installed and the bundle cannot verify Google's chain.
