@@ -679,6 +679,7 @@ int cmd_claw(int argc, char **argv)
      */
     rgb_display_release_gfx();
     int rc = cmd_claw_run(argc, argv);
+    claw_agent_disconnect();   /* its TLS buffers must go before the reserve */
 
     /*
      * Drop everything cached before trying to take the buffer back: a few KB

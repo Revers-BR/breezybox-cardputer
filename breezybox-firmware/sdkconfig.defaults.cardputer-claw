@@ -78,3 +78,6 @@ CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 # graphics framebuffer and dropping SSH, not from the bundle.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# TLS session tickets: when claw has to reopen its HTTPS connection, the
+# ticket saved from the first handshake makes the new one abbreviated.
+CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y

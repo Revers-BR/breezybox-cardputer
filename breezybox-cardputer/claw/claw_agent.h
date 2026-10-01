@@ -28,3 +28,7 @@ typedef struct {
 /* Send one user prompt and stream the reply to stdout.
  * Returns 0 on success. `verbose` adds transport and heap statistics. */
 int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out);
+
+/* Close the HTTPS connection that claw_agent_ask() keeps open between rounds
+ * and between prompts. Call when the claw command exits. */
+void claw_agent_disconnect(void);

@@ -181,6 +181,95 @@ static void on_sse_event(const char *event, const char *data, void *vctx)
 }
 
 /*
+ * One HTTPS connection, kept open across rounds and across prompts.
+ *
+ * Opening a connection is the largest fixed cost of a round: DNS, TCP, and a
+ * TLS handshake with certificate verification measured 700-780 ms, against
+ * ~110 ms to send a 10 KB request and ~400 ms for Gemini's first byte. A tool
+ * loop pays it every round, and the REPL every prompt. esp_http_client sends
+ * the next request on the same socket when the previous response was read to
+ * the end, so the client is kept until claw exits (claw_agent_disconnect) or
+ * the connection fails.
+ *
+ * esp_http_client keeps the cert_pem pointer rather than copying it, so the
+ * connection owns its copy of the CA: the caller's buffer is freed when the
+ * prompt finishes, and a reconnect in a later prompt would read freed memory.
+ *
+ * When the socket did have to be reopened, the session ticket saved from the
+ * first handshake makes the new one an abbreviated handshake.
+ */
+/* Free heap needed after a round to keep the connection, or even the client,
+ * between rounds. Measured with WiFi and Bluetooth up: 33 KB free with the
+ * connection held, 43 KB with only the socket closed, and in both cases the
+ * next prompt failed to allocate. An open connection itself holds ~12 KB. */
+#define CLAW_KEEPALIVE_MIN_FREE (40 * 1024)
+
+static struct {
+    esp_http_client_handle_t client;
+    char  url[256];
+    char *ca_pem;     /* owned copy; NULL means the certificate bundle */
+    bool  live;       /* a response was read to the end on this socket */
+} s_conn;
+
+void claw_agent_disconnect(void)
+{
+    if (s_conn.client) {
+        esp_http_client_cleanup(s_conn.client);   /* closes the socket too */
+        s_conn.client = NULL;
+    }
+    free(s_conn.ca_pem);
+    s_conn.ca_pem = NULL;
+    s_conn.url[0] = '\0';
+    s_conn.live = false;
+}
+
+/* Drop the socket but keep the client, so the next open reconnects. */
+static void conn_drop_socket(void)
+{
+    if (s_conn.client) {
+        esp_http_client_close(s_conn.client);
+    }
+    s_conn.live = false;
+}
+
+static esp_http_client_handle_t conn_get(const char *url, const char *ca_pem)
+{
+    const bool same_ca = (ca_pem == NULL && s_conn.ca_pem == NULL) ||
+                         (ca_pem && s_conn.ca_pem && strcmp(ca_pem, s_conn.ca_pem) == 0);
+    if (s_conn.client && same_ca && strcmp(url, s_conn.url) == 0) {
+        return s_conn.client;
+    }
+    claw_agent_disconnect();
+
+    if (ca_pem) {
+        s_conn.ca_pem = strdup(ca_pem);
+        if (!s_conn.ca_pem) {
+            return NULL;
+        }
+    }
+    snprintf(s_conn.url, sizeof(s_conn.url), "%s", url);
+
+    esp_http_client_config_t cfg = {
+        .url                   = s_conn.url,
+        .method                = HTTP_METHOD_POST,
+        .timeout_ms            = claw_config_get_int("timeout_ms", 60000),
+        .buffer_size           = CLAW_IO_CHUNK,
+        .buffer_size_tx        = CLAW_IO_CHUNK,
+        .cert_pem              = s_conn.ca_pem,
+        .crt_bundle_attach     = s_conn.ca_pem ? NULL : esp_crt_bundle_attach,
+        .disable_auto_redirect = true,
+#if CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS
+        .save_client_session   = true,
+#endif
+    };
+    s_conn.client = esp_http_client_init(&cfg);
+    if (!s_conn.client) {
+        claw_agent_disconnect();
+    }
+    return s_conn.client;
+}
+
+/*
  * One request/response round.
  *
  * `messages` is borrowed. On return, *sctx holds the streamed reply and, if the
@@ -191,6 +280,7 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
                       claw_result_t *res, stream_ctx_t *sctx,
                       const char *ca_pem, claw_sse_t *parser)
 {
+    const int64_t t_start = esp_timer_get_time();
     cJSON *body = backend->build_body(messages);
     if (!body) {
         snprintf(res->error, sizeof(res->error),
@@ -233,22 +323,12 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     }
     const int body_len = (int)written;
     res->bytes_sent = (size_t)written;
+    const int64_t t_written = esp_timer_get_time();
 
     char url[256];
     backend->endpoint(url, sizeof(url));
 
-    esp_http_client_config_t cfg = {
-        .url                   = url,
-        .method                = HTTP_METHOD_POST,
-        .timeout_ms            = claw_config_get_int("timeout_ms", 60000),
-        .buffer_size           = CLAW_IO_CHUNK,
-        .buffer_size_tx        = CLAW_IO_CHUNK,
-        .cert_pem              = ca_pem,
-        .crt_bundle_attach     = ca_pem ? NULL : esp_crt_bundle_attach,
-        .disable_auto_redirect = true,
-    };
-
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    esp_http_client_handle_t client = conn_get(url, ca_pem);
     if (!client) {
         snprintf(res->error, sizeof(res->error),
                  claw_text("agent.write_body.http_client_init",
@@ -261,16 +341,33 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     claw_sse_init(parser, on_sse_event, sctx);
 
     int rc = 1;
-    const int64_t t_open = esp_timer_get_time();
-    if (esp_http_client_open(client, body_len) != ESP_OK) {
-        char net[64];
-        network_detail(net, sizeof(net));
-        snprintf(res->error, sizeof(res->error),
-                 "could not reach %.60s (%s)", url, net);
-        goto done;
-    }
+    int64_t t_sent = 0;
+    bool reused_conn = false;
 
-    {   /* stream the body off disk rather than holding it in RAM */
+    /*
+     * Two passes at most. A kept socket the server has since closed fails on
+     * the first write or read; that is not a network fault, so reconnect at
+     * once rather than going through the caller's backoff and its message.
+     */
+    for (int pass = 0; pass < 2; pass++) {
+        const bool reused = s_conn.live;
+        reused_conn = reused;
+        const int64_t t_open = esp_timer_get_time();
+        res->error[0] = '\0';
+
+        if (esp_http_client_open(client, body_len) != ESP_OK) {
+            char net[64];
+            network_detail(net, sizeof(net));
+            snprintf(res->error, sizeof(res->error),
+                     "could not reach %.60s (%s)", url, net);
+            conn_drop_socket();
+            if (reused) {
+                continue;
+            }
+            goto done;
+        }
+
+        /* stream the body off disk rather than holding it in RAM */
         FILE *bf = fopen(req_path, "rb");
         if (!bf) {
             snprintf(res->error, sizeof(res->error),
@@ -299,20 +396,34 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
                      "(%u ms). The TLS connection may not have completed.",
                      (unsigned)sent, body_len,
                      (unsigned)((esp_timer_get_time() - t_open) / 1000));
+            conn_drop_socket();
+            if (reused) {
+                continue;
+            }
             goto done;
         }
-    }
 
-    if (esp_http_client_fetch_headers(client) < 0) {
-        /* Almost always the read timeout expiring with no reply. The request
-         * size matters here: it grows with every tool round, and a large one
-         * takes the provider longer to answer. */
-        snprintf(res->error, sizeof(res->error),
-                 "no reply within %d s to a %d byte request. It grows with "
-                 "each tool call -- try /new, or a lower context_budget.",
-                 claw_config_get_int("timeout_ms", 60000) / 1000, body_len);
+        t_sent = esp_timer_get_time();
+        if (esp_http_client_fetch_headers(client) < 0) {
+            /* Almost always the read timeout expiring with no reply. The request
+             * size matters here: it grows with every tool round, and a large one
+             * takes the provider longer to answer. */
+            snprintf(res->error, sizeof(res->error),
+                     "no reply within %d s to a %d byte request. It grows with "
+                     "each tool call -- try /new, or a lower context_budget.",
+                     claw_config_get_int("timeout_ms", 60000) / 1000, body_len);
+            conn_drop_socket();
+            if (reused) {
+                continue;
+            }
+            goto done;
+        }
+        break;
+    }
+    if (res->error[0]) {
         goto done;
     }
+    const int64_t t_headers = esp_timer_get_time();
     res->status = esp_http_client_get_status_code(client);
     sctx->in_error_body = (res->status < 200 || res->status >= 300);
 
@@ -357,6 +468,15 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
         }
         claw_sse_finish(parser);
     }
+    if (verbose) {
+        /* Where a round's time goes; connect is the part keep-alive removes. */
+        printf("\n[round: build %u ms, %s+send %u ms, first byte %u ms, stream %u ms]\n",
+               (unsigned)((t_written - t_start) / 1000),
+               reused_conn ? "reused" : "connect",
+               (unsigned)((t_sent - t_written) / 1000),
+               (unsigned)((t_headers - t_sent) / 1000),
+               (unsigned)((esp_timer_get_time() - t_headers) / 1000));
+    }
 
     if (sctx->in_error_body) {
         sctx->error_body[sctx->error_body_len] = '\0';
@@ -386,8 +506,25 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
     }
 
 done:
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
+    /* Keep the socket for the next round only when this response was read to
+     * the end, the server did not ask to close, and there is memory to spare:
+     * an open TLS connection holds its context and buffers, and with WiFi and
+     * Bluetooth both up that is the difference between the next request (or a
+     * Lua tool) fitting and not. Below the threshold, reconnect as before. */
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    if (rc == 0 && esp_http_client_is_complete_data_received(client) &&
+        esp_http_client_is_persistent_connection(client) &&
+        heap_caps_get_free_size(caps) >= CLAW_KEEPALIVE_MIN_FREE) {
+        s_conn.live = true;
+    } else if (heap_caps_get_free_size(caps) < CLAW_KEEPALIVE_MIN_FREE) {
+        /* Short of memory: free the whole client, not just the socket. Its
+         * buffers, TLS transport and saved ticket are what the next request
+         * needs. Measured with both radios up: the next prompt otherwise
+         * failed to get a 512 byte DMA buffer for the SD card. */
+        claw_agent_disconnect();
+    } else {
+        conn_drop_socket();
+    }
     if (parser->truncated) {
         /* Truncation means an event was dropped, so the turn is incomplete.
          * Say so rather than leaving the user with "(no text in response)". */

@@ -222,6 +222,38 @@ hatch. The profile now uses `DEFAULT_FULL`.
 This does not change the language decision, but it does mean the RAM budget
 above is measured with the full bundle in place.
 
+Note added 2026-10-01: `0x4290` decodes as `MBEDTLS_ERR_RSA_PUBLIC_FAILED`
+(`-0x4280`) plus `MBEDTLS_ERR_MPI_ALLOC_FAILED` (`-0x0010`), an allocation
+failure inside the signature check. The same message appeared on 2026-09-30
+with the full bundle, purely from low heap (WiFi and Bluetooth up, 6 KB free
+during the request). The trimmed-bundle result above may have been the same
+memory failure and could be worth retesting now that more heap is free.
+
+## Connection reuse
+
+A round's time, measured on a 10-12 KB Gemini request:
+
+| Stage | Time |
+|---|---|
+| Build the request and write it to SD | ~210 ms |
+| Connect (DNS, TCP, TLS handshake, certificate check) + send | 900-1050 ms |
+| Same, on a kept connection | 120-145 ms |
+| Gemini's first byte | 400-900 ms |
+
+`claw_agent.c` keeps one HTTPS connection open across tool rounds and across
+REPL prompts, and closes it when `claw` exits (`claw_agent_disconnect`). It
+owns a copy of the CA PEM because `esp_http_client` keeps the pointer, not a
+copy. TLS session tickets are on, so a reconnect is an abbreviated handshake.
+
+An open connection holds ~12 KB, and the client object a few KB more. After a
+round the connection is kept only when at least 40 KB is free
+(`CLAW_KEEPALIVE_MIN_FREE`); below that the whole client is freed. With WiFi
+and Bluetooth both up there is ~30 KB free after a round, so that
+configuration reconnects every round as before. Holding the client there made
+the next prompt fail to get a 512-byte DMA buffer for the SD card.
+
+`claw ask -v` prints the per-stage times for each round.
+
 ## Current state
 
 - `packages/espclaw/` is the canonical source.

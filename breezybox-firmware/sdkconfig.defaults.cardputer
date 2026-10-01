@@ -87,3 +87,6 @@ CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
 # CONFIG_ELF_LOADER_BUS_ADDRESS_MIRROR is not set
 CONFIG_ELF_LOADER_CUSTOMER_SYMBOLS=y
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+# TLS session tickets: when claw has to reopen its HTTPS connection, the
+# ticket saved from the first handshake makes the new one abbreviated.
+CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y
