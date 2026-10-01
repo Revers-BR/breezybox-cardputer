@@ -441,6 +441,81 @@ The same as `/models`, `/model` and `/backend` inside a session. The model is
 stored per backend, so switching provider cannot leave a Gemini model pointed at
 OpenAI.
 
+## Response speed
+
+`claw ask -v` prints where each round's time went:
+
+```
+[round: build 238 ms, connect+send 975 ms, first byte 555 ms, stream 3 ms]
+```
+
+Measured on a Cardputer with a 10-12 KB Gemini request:
+
+| Stage | Time | What it is |
+|---|---|---|
+| build | 200-270 ms | request JSON written to `/sd/claw/tmp/req.json` |
+| connect+send | 840-1050 ms | DNS, TCP, TLS handshake and certificate check, then the body |
+| reused+send | 120-145 ms | the same on a connection kept from the previous round |
+| first byte | 430-550 ms | Gemini's answer time, without thinking |
+| stream | 3-60 ms | reading the reply |
+
+### Connection reuse
+
+The HTTPS connection stays open between tool rounds and between prompts in a
+session, and closes when `claw` exits. After the first prompt this saves about
+800 ms per round. Each `claw ask` is a separate command, so it always pays the
+full connect.
+
+An open connection holds about 12 KB, so it is only kept when at least 40 KB is
+free after a round. With WiFi and Bluetooth both up there is about 30 KB free,
+and every round reconnects. Running without Bluetooth is the faster setup for
+long sessions.
+
+### Thinking (Gemini)
+
+Gemini 2.5 models can think before answering. When they do, the first byte
+waits for it; when they do not, thinking costs nothing.
+`gemini.thinking_budget` controls it:
+
+```sh
+claw config set gemini.thinking_budget 0     # off: fastest
+claw config set gemini.thinking_budget 512   # cap at 512 tokens
+claw config set gemini.thinking_budget -1    # dynamic: the model decides
+claw config set gemini.thinking_budget ""    # unset: the model's default
+```
+
+Measured with `gemini-2.5-flash` (2026-10-01):
+
+| Question | Budget | First byte | Answer |
+|---|---|---|---|
+| bat-and-ball puzzle | `-1` / `0` | 444-1107 / 459-523 ms | correct each time |
+| 3-digit multiplication (x4) | `-1` / `0` | 429-510 / 492-542 ms | all correct |
+| train timetable, two legs and a wait | `-1` | 7759 ms (it thought) | correct |
+| train timetable | `-1` | 457 ms (it did not) | wrong by 30 min |
+| train timetable | `0` | 446 ms | 1 min off |
+| train timetable | `0` | 433 ms | wrong by 20 min |
+
+So:
+
+- For chat and short questions `0` changes nothing: Flash does not think about
+  those anyway.
+- `0` only saves time on questions the model would have thought about, which
+  is where thinking gets multi-step answers right. Expect it to be wrong more
+  often there.
+- Leaving it unset does not guarantee thinking: Flash sometimes answers a
+  multi-step question straight away, and gets it wrong.
+- `gemini-2.5-pro` rejects `0` with HTTP 400; use a positive budget instead.
+
+Use `0` when you want quick conversational replies. Leave it unset for tool
+work and anything with several steps.
+
+### Session size
+
+Every request carries the session transcript, up to `context_budget` bytes. A
+long session makes every request bigger, which adds to build and send time and
+to the provider's answer time. `/new` (or `claw session new`) starts a clean
+one.
+
 ## The model catalogue
 
 `/sd/claw/models.json` lists the models offered by `/models`. It is data, not
@@ -513,6 +588,13 @@ lower `context_budget` or `max_tokens` first.
 **`no API key set`** — `claw config set <backend>.key <key>`.
 
 **`no network`** — `wifi connect <ssid> <password>`, check with `wifi status`.
+
+**Replies are slow** — run `claw ask -v` and read the `[round: ...]` line.
+A large `connect` time on every round in a session means memory was too low to
+keep the connection (see [Connection reuse](#connection-reuse)); a large
+`first byte` on multi-step questions is the model thinking (see
+[Thinking](#thinking-gemini)). A large request size in the summary line means a
+long session: `/new`.
 
 **Handshake fails with an allocation error** — you are probably on the stock
 `cardputer` build. Check `claw stats`: it prints the profile and build time.
