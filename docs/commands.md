@@ -35,11 +35,20 @@ help                - List all commands
 ```
 wifi scan                    - Scan for WiFi networks
 wifi connect <ssid> [pass]   - Connect to WiFi
-wifi disconnect              - Disconnect from WiFi
+wifi disconnect              - Disconnect and unload WiFi (frees ~33 KB)
 wifi status                  - Show connection status
 wifi forget                  - Forget saved network
 httpd [dir] [-p port]        - Start HTTP file server
 ```
+
+### Bluetooth keyboard
+```
+bt scan [-v]                 - Find a keyboard and connect
+bt connect                   - Reconnect to the saved keyboard
+bt status                    - Show connection state
+bt clear                     - Forget saved keyboards
+```
+Starting Bluetooth takes ~55 KB of RAM until reboot. It fits alongside WiFi.
 
 ### Programs
 ```

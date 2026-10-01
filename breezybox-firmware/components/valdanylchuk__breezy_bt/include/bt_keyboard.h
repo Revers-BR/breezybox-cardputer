@@ -62,7 +62,7 @@ esp_err_t bt_keyboard_connect_native(void);
 /**
  * Return non-zero when a keyboard address has been saved (from a previous
  * pairing, loaded from NVS at init). Local addition on top of upstream 1.0.2;
- * `btconnect` uses it to give a useful message instead of silently failing.
+ * `bt connect` uses it to give a useful message instead of silently failing.
  */
 int bt_keyboard_has_saved_target(void);
 

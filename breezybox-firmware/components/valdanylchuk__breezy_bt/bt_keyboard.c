@@ -513,7 +513,7 @@ found_device:
 
 // Local patch: scanning before the host has synced with the controller makes
 // ble_gap_disc() dereference an unset identity address (LoadProhibited). The
-// first btconnect/btscan after init always did this. Defer instead: on_sync
+// first `bt connect`/`bt scan` after init always did this. Defer instead: on_sync
 // starts the reconnect scan when a keyboard is saved, and runs a deferred
 // general scan otherwise.
 static int s_general_scan_on_sync = 0;
@@ -643,7 +643,7 @@ int bt_keyboard_has_saved_target(void) {
 esp_err_t bt_keyboard_connect_native(void) {
     if (s_connected) return ESP_OK;
     if (!s_have_target) {
-        ESP_LOGW(TAG, "No saved keyboard - use 'btscan'");
+        ESP_LOGW(TAG, "No saved keyboard - use 'bt scan'");
         return ESP_FAIL;
     }
 

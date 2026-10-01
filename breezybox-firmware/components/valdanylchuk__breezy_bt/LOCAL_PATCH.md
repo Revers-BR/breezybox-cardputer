@@ -3,7 +3,7 @@
 Vendored copy of upstream **1.0.2** with two local changes:
 
 - `bt_keyboard_has_saved_target()` — exposes the existing `s_have_target`
-  static so `btconnect` can report "No saved keyboard" instead of failing
+  static so `bt connect` can report "No saved keyboard" instead of failing
   silently. Upstream has no equivalent.
 - `bt_keyboard_init()` checks the results of `nimble_port_init()`,
   `esp_hidh_init()` and the connect task/timer creation, and returns the error

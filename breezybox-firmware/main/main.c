@@ -32,10 +32,7 @@ enum { HELP_WIDTH = 40, HELP_DESC_INDENT = 2 };
 
 static int cmd_help(int argc, char **argv);
 #if !defined(BREEZY_SLIM)
-int cmd_btscan(int argc, char **argv);
-int cmd_btconnect(int argc, char **argv);
-static int cmd_btclear(int argc, char **argv);
-static int cmd_btstatus(int argc, char **argv);
+static int cmd_bt(int argc, char **argv);
 #endif
 static int cmd_vt(int argc, char **argv);
 static int cmd_keytest(int argc, char **argv);
@@ -60,10 +57,7 @@ extern int ssh_app_mode_run(ssh_session session);
 static const esp_console_cmd_t s_app_cmds[] = {
     { .command = "help", .help = "List all commands", .hint = NULL, .func = &cmd_help },
 #if !defined(BREEZY_SLIM)
-    { .command = "btscan", .help = "Scan for BT keyboards", .hint = "[-v]", .func = &cmd_btscan },
-    { .command = "btconnect", .help = "Reconnect saved keyboard", .func = &cmd_btconnect },
-    { .command = "btclear", .help = "Clear saved BT devices", .func = &cmd_btclear },
-    { .command = "btstatus", .help = "Show BT keyboard status", .func = &cmd_btstatus },
+    { .command = "bt", .help = "Bluetooth keyboard commands", .hint = "<scan|connect|status|clear>", .func = &cmd_bt },
 #endif
     { .command = "vt", .help = "Switch VT", .func = &cmd_vt },
     { .command = "keytest", .help = "Keys test", .func = &cmd_keytest },
@@ -84,10 +78,7 @@ static const esp_console_cmd_t s_app_cmds[] = {
 static const breezybox_help_entry_t s_app_help[] = {
     { "help", "help [command]", "Show command list or detailed help for one command.", NULL, "help\nhelp wifi\nhelp vi" },
 #if !defined(BREEZY_SLIM)
-    { "btscan", "btscan [-v]", "Scan for Bluetooth keyboards and auto-connect when one is found.", "-v  verbose scan output", "btscan\nbtscan -v" },
-    { "btconnect", "btconnect", "Reconnect to the previously saved keyboard.", NULL, "btconnect" },
-    { "btclear", "btclear", "Clear saved Bluetooth device bonds.", NULL, "btclear" },
-    { "btstatus", "btstatus", "Show Bluetooth keyboard status.", NULL, "btstatus" },
+    { "bt", "bt <scan|connect|status|clear>", "Bluetooth keyboard commands. Starting Bluetooth takes ~55 KB of RAM until reboot.", "scan [-v]  find and connect\nconnect    reconnect saved keyboard\nstatus     show connection state\nclear      forget saved keyboards", "bt scan\nbt connect\nbt status" },
 #endif
     { "vt", "vt [n]", "Show or switch virtual terminal.", "n  terminal number", "vt\nvt 1" },
     { "keytest", "keytest", "Print raw keypresses until Ctrl+C.", NULL, "keytest" },
@@ -288,9 +279,7 @@ static esp_err_t ensure_bt_initialized(void)
     return ESP_OK;
 }
 
-// BreezyBox command to scan for BT
-int cmd_btscan(int argc, char **argv) {
-    int verbose = (argc > 1 && strcmp(argv[1], "-v") == 0);
+static int bt_scan(int verbose) {
     if (ensure_bt_initialized() != ESP_OK) {
         return 1;
     }
@@ -302,8 +291,7 @@ int cmd_btscan(int argc, char **argv) {
     return 0;
 }
 
-// Command Wrapper
-int cmd_btconnect(int argc, char **argv) {
+static int bt_connect(void) {
     if (ensure_bt_initialized() != ESP_OK) {
         return 1;
     }
@@ -312,7 +300,7 @@ int cmd_btconnect(int argc, char **argv) {
         return 0;
     }
     if (!bt_keyboard_has_saved_target()) {
-        printf("No saved keyboard. Run 'btscan' first.\n");
+        printf("No saved keyboard. Run 'bt scan' first.\n");
         return 1;
     }
 
@@ -324,18 +312,17 @@ int cmd_btconnect(int argc, char **argv) {
     return 0;
 }
 
-static int cmd_btclear(int argc, char **argv) {
+static int bt_clear(void) {
     bt_keyboard_clear_bonds();
     printf("Bonds cleared. Restart device.\n");
     return 0;
 }
 
-// BreezyBox command to check BT status
-static int cmd_btstatus(int argc, char **argv)
+static int bt_status(void)
 {
     if (!s_bt_initialized) {
         printf("BT keyboard: not initialized\n");
-        printf("Run 'btscan' or 'btconnect' to initialize BLE keyboard support\n");
+        printf("Run 'bt scan' or 'bt connect' to start it\n");
         return 0;
     }
 
@@ -343,9 +330,29 @@ static int cmd_btstatus(int argc, char **argv)
         printf("BT keyboard: connected\n");
     } else {
         printf("BT keyboard: not connected\n");
-        printf("Use 'btscan' to search for keyboards\n");
+        printf("Use 'bt scan' to search for keyboards\n");
     }
     return 0;
+}
+
+static int cmd_bt(int argc, char **argv)
+{
+    const char *sub = (argc > 1) ? argv[1] : "";
+
+    if (strcmp(sub, "scan") == 0) {
+        return bt_scan(argc > 2 && strcmp(argv[2], "-v") == 0);
+    }
+    if (strcmp(sub, "connect") == 0) {
+        return bt_connect();
+    }
+    if (strcmp(sub, "status") == 0) {
+        return bt_status();
+    }
+    if (strcmp(sub, "clear") == 0) {
+        return bt_clear();
+    }
+    printf("Usage: bt <scan [-v]|connect|status|clear>\n");
+    return 1;
 }
 #endif
 

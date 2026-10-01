@@ -79,20 +79,22 @@ df
 Commands:
 
 ```sh
-btscan
-btscan -v
-btconnect
-btstatus
-btclear
+bt scan
+bt scan -v
+bt connect
+bt status
+bt clear
 ```
 
 Behavior:
 
-- `btscan` scans for Bluetooth keyboards and can auto-connect
-- `btconnect` reconnects to the previously saved keyboard
-- saved BT target is written to `/sd/.bt_keyboard_target` when SD is mounted
-- otherwise it is saved to `/root/.bt_keyboard_target`
-- NVS is also used as a fallback
+- `bt scan` scans for Bluetooth keyboards and connects to the first one found
+- `bt connect` reconnects to the previously saved keyboard, scanning until it
+  appears
+- the saved keyboard address and the bond keys are stored in NVS, so they
+  survive reflashing the app; `bt clear` erases them
+- starting Bluetooth takes ~55 KB of RAM and stays loaded until reboot; it
+  refuses to start, with a message, when less than 60 KB is free
 
 ## Wi-Fi Credential Storage
 
