@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifndef DISPLAY_COLS
@@ -95,10 +96,12 @@ uint16_t rgb_display_get_vga_palette_entry(int index);
 void rgb_display_set_backlight(uint8_t level);
 uint8_t rgb_display_get_backlight(void);
 
-/* Release the reserved graphics framebuffer (text mode only), and take it back.
- * Lets a memory-hungry command borrow 36 KB of contiguous heap. */
-void rgb_display_release_gfx(void);
-bool rgb_display_reserve_gfx(void);
+/* Lend the graphics framebuffer's memory to a command, and take it back.
+ * Text mode only. While it is lent, entering a pixel mode fails. The buffer is
+ * never freed, so it cannot be lost to heap fragmentation. Returns NULL when
+ * not in text mode, already lent, or no buffer could be allocated. */
+void *rgb_display_lend_gfx(size_t *size);
+void rgb_display_return_gfx(void);
 
 // VSYNC synchronization (only used in graphics modes)
 // Block until next vertical blank

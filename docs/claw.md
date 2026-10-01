@@ -472,9 +472,9 @@ session, and closes when `claw` exits. After the first prompt this saves about
 full connect.
 
 An open connection holds about 12 KB, so it is only kept when at least 40 KB is
-free after a round. With WiFi and Bluetooth both up there is about 30 KB free,
-and every round reconnects. Running without Bluetooth is the faster setup for
-long sessions.
+free after a round. With claw running inside the graphics buffer (see
+[Graphics and the agent share memory](#graphics-and-the-agent-share-memory)),
+about 65 KB is free after a round even with WiFi and Bluetooth both up.
 
 ### Thinking (Gemini)
 
@@ -540,33 +540,36 @@ It is seeded from the shipped copy on first run.
 
 ## Graphics and the agent share memory
 
-A pixel mode needs one contiguous 36 KB framebuffer, and so does the agent for
-its stream parser and request serialisation. On a board with no PSRAM there is
-one such block, so they take turns.
+A pixel mode needs one contiguous 36 KB framebuffer. On a board with no PSRAM
+that block is reserved at boot, while the heap is still whole, because it
+cannot be found later.
 
-The framebuffer is reserved at boot, while the heap is still whole. `claw`
-releases it on entry and takes it back on exit, so both work in a single
-session:
+`claw` borrows it while it runs. The buffer is lent, not freed:
+`rgb_display_lend_gfx()` hands claw the memory, and claw uses it as a private
+heap (`claw/claw_arena.c`) for its stream parser, reply and tool buffers and
+its JSON trees, falling back to the general heap when it is full. On exit the
+private heap is empty and the buffer goes straight back to graphics:
 
 ```sh
-claw ask "..."                    # the agent has the block
-lua /sd/claw/skills/rainbow.lua   # graphics has it back
+claw ask "..."                    # claw runs inside the framebuffer
+lua /sd/claw/skills/rainbow.lua   # graphics has it back, no reboot
 ```
 
-Reclaiming can fail, because the network stack retains a few hundred bytes per
-request and that is enough to stop 36 KB coalescing. ESP-IDF cannot compact a
-heap, so there is no fix beyond rebooting. `claw` says so on exit when it
-happens:
+While claw runs, a pixel mode is refused -- `breezy.gfx.mode("150p")` from a
+`run_lua` tool returns an error rather than drawing over claw's data. Text
+output (`print`, `breezy.tui`) needs no framebuffer and works as usual.
+
+Previously claw freed the buffer and allocated it again on exit. Allocations
+made during the session (lwIP, WiFi, caches) landed in the gap, the 36 KB block
+could not be had back, and graphics needed a reboot.
+
+If something claw allocated were still alive on exit, claw keeps the buffer
+rather than let graphics overwrite it, and says so:
 
 ```
-note: the graphics framebuffer could not be reclaimed (largest block 31744
-      of 36000 needed).
-      Reboot before running a graphics script.
+note: N bytes of claw data are still in the graphics buffer;
+      graphics will be unavailable until they are freed.
 ```
-
-In practice: run graphics scripts before a long agent session, or reboot
-between. Writing a graphics script with the agent and then running it is the
-awkward case, and a reboot is the honest answer.
 
 ## Memory budget
 
@@ -606,10 +609,9 @@ during the request. It shows up as `PK verify failed with error 0x4290` (an
 allocation failure inside the certificate check, not a bad certificate),
 `wifi:m f null` (WiFi could not allocate a packet buffer, so replies stall
 until the 60 s timeout), or a reset while writing to the card. `claw stats`
-prints the heap. The usual cause is WiFi and Bluetooth both being up: about
-30 KB is left after a round, against the ~60 KB a request needs while it is
-being built. Reboot and leave Bluetooth off for long sessions, or `/new` to
-shrink the request.
+prints the heap. The usual cause is WiFi and Bluetooth both being up together
+with a long session; `/new` shrinks the request, and leaving Bluetooth off
+gives the most room.
 
 Since v1.4.0 claw checks first and stops with `out of memory: N KB left after
 building the request, 12 KB needed` instead of crashing. The request size

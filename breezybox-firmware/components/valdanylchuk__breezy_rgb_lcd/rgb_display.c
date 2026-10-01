@@ -74,6 +74,7 @@ static uint32_t s_frame_count;
 static uint32_t s_text_colors[16];
 static uint16_t s_vga_palette[256];
 static uint8_t s_backlight_level = 255;
+static bool s_gfx_lent;
 
 static void release_gfx_buffer(void);
 static void apply_backlight_level(uint8_t level);
@@ -136,6 +137,11 @@ static esp_err_t ensure_gfx_buffer(size_t bytes)
     if (s_gfx_buffer && s_gfx_capacity_bytes >= bytes) {
         return ESP_OK;
     }
+    if (s_gfx_lent) {
+        /* Its memory is someone's heap right now; replacing it would free
+         * that out from under them. */
+        return ESP_ERR_INVALID_STATE;
+    }
 
     release_gfx_buffer();
 
@@ -166,25 +172,32 @@ static void release_gfx_buffer(void)
 }
 
 /*
- * Hand the graphics framebuffer back, and take it again.
+ * Lend the graphics framebuffer's memory, and take it back.
  *
  * The buffer is reserved at boot because the heap fragments within seconds and
- * a 36 KB contiguous block never becomes available again. That reservation is
- * also the largest single thing standing between the agent and the contiguous
- * memory it needs, so claw releases it while running and reserves it again on
- * exit. Re-reserving can fail if the heap fragmented meanwhile, in which case
- * graphics needs a reboot -- but that is strictly better than never having it.
+ * a 36 KB contiguous block never becomes available again. claw needs that
+ * memory while it runs. It used to free the buffer and allocate it again on
+ * exit, but allocations made during the session (lwIP, WiFi, caches) landed in
+ * the gap, and the 36 KB block could not be had back: graphics then needed a
+ * reboot. Lending keeps the allocation in place -- the borrower uses the
+ * memory as its own heap and hands it back whole.
  */
-void rgb_display_release_gfx(void)
+void *rgb_display_lend_gfx(size_t *size)
 {
-    if (rgb_display_get_mode() == SM_TEXT) {
-        release_gfx_buffer();
+    if (s_gfx_lent || rgb_display_get_mode() != SM_TEXT ||
+        ensure_gfx_buffer(GFX_FB_150P_BYTES) != ESP_OK) {
+        return NULL;
     }
+    s_gfx_lent = true;
+    if (size) {
+        *size = s_gfx_capacity_bytes;
+    }
+    return s_gfx_buffer;
 }
 
-bool rgb_display_reserve_gfx(void)
+void rgb_display_return_gfx(void)
 {
-    return ensure_gfx_buffer(GFX_FB_150P_BYTES) == ESP_OK;
+    s_gfx_lent = false;
 }
 
 
@@ -367,6 +380,10 @@ static void refresh_task(void *arg)
 
 static int enter_graphics_mode(screen_mode_t mode)
 {
+    if (s_gfx_lent) {
+        ESP_LOGW(TAG, "graphics framebuffer is lent out (claw is running)");
+        return -1;
+    }
     if (mode == SM_150P) {
         s_gfx_width = GFX_FB_150P_WIDTH;
         s_gfx_height = GFX_FB_150P_HEIGHT;

@@ -49,6 +49,7 @@ idf_component_register(
         "cmd/lua.c"
         "cmd/claw.c"
         "claw/claw_agent.c"
+        "claw/claw_arena.c"
         "claw/claw_backend.c"
         "claw/claw_backend_anthropic.c"
         "claw/claw_backend_gemini.c"

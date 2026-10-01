@@ -22,6 +22,7 @@
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
 #include "rgb_display.h"
+#include "claw_arena.h"
 #include "linenoise/linenoise.h"
 
 #include "esp_log.h"
@@ -671,35 +672,33 @@ static int cmd_stats(void)
 int cmd_claw(int argc, char **argv)
 {
     /*
-     * Borrow the graphics framebuffer while we run.
+     * Run inside the graphics framebuffer.
      *
-     * It is reserved at boot so a pixel mode is possible at all, but 36 KB of
-     * contiguous heap is also the difference between the agent working and
-     * failing to serialise a request. Give it back on the way out.
+     * It is reserved at boot so a pixel mode is possible at all, and its 36 KB
+     * is also what claw needs to build a request. It is lent, not freed: claw
+     * uses it as a private heap (claw_arena.c) and graphics gets it back
+     * whole, rather than trying to allocate 36 KB contiguous again from a heap
+     * the session has fragmented.
      */
-    rgb_display_release_gfx();
+    size_t gfx_size = 0;
+    void *gfx = rgb_display_lend_gfx(&gfx_size);
+    claw_arena_begin(gfx, gfx_size);
+
     int rc = cmd_claw_run(argc, argv);
-    claw_agent_disconnect();   /* its TLS buffers must go before the reserve */
 
-    /*
-     * Drop everything cached before trying to take the buffer back: a few KB
-     * held in the middle of the region is enough to stop 36 KB coalescing.
-     * This is not defragmentation -- ESP-IDF cannot compact a heap -- it just
-     * improves the odds.
-     */
-    claw_text_reload();
+    claw_agent_disconnect();
+    claw_text_reload();        /* its parsed overrides live in the arena */
 
-    if (!rgb_display_reserve_gfx()) {
-        /*
-         * Say so now. The alternative is the user discovering it later, from a
-         * graphics script that fails for reasons that look unrelated to having
-         * run the agent.
-         */
-        const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-        printf("note: the graphics framebuffer could not be reclaimed "
-               "(largest block %u of 36000 needed).\n"
-               "      Reboot before running a graphics script.\n",
-               (unsigned)heap_caps_get_largest_free_block(caps));
+    if (claw_arena_end()) {
+        if (gfx) {
+            rgb_display_return_gfx();
+        }
+    } else {
+        /* Something claw allocated is still alive inside the framebuffer;
+         * handing it back now would let graphics overwrite it. */
+        printf("note: %u bytes of claw data are still in the graphics buffer;\n"
+               "      graphics will be unavailable until they are freed.\n",
+               (unsigned)claw_arena_in_use());
     }
     return rc;
 }

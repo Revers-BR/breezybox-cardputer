@@ -1,5 +1,6 @@
 #include "claw_agent.h"
 #include "claw_backend.h"
+#include "claw_arena.h"
 #include "claw_config.h"
 #include "claw_json_write.h"
 #include "claw_memory.h"
@@ -317,7 +318,7 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
                 }
                 cJSON *raw = cJSON_CreateRaw(text);
                 tools_text += strlen(text);
-                free(text);
+                cJSON_free(text);
                 if (raw) {
                     raw->string = strdup(it->string);   /* ViaPointer keeps no key */
                 }
@@ -682,7 +683,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
      * API expects it.
      */
     {
-        char *mem = malloc(CLAW_MEMORY_INJECT_MAX);
+        char *mem = claw_malloc(CLAW_MEMORY_INJECT_MAX);
         if (mem) {
             if (claw_memory_context(mem, CLAW_MEMORY_INJECT_MAX) > 0) {
                 cJSON *sys = cJSON_CreateObject();
@@ -694,11 +695,11 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
                     }
                 }
             }
-            free(mem);
+            claw_free(mem);
         }
     }
     {
-        char *prompt = malloc(CLAW_PROMPT_MAX);
+        char *prompt = claw_malloc(CLAW_PROMPT_MAX);
         if (prompt) {
             if (claw_prompt_build(prompt, CLAW_PROMPT_MAX) > 0) {
                 cJSON *sys = cJSON_CreateObject();
@@ -710,7 +711,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
                     }
                 }
             }
-            free(prompt);
+            claw_free(prompt);
         }
     }
 
@@ -725,7 +726,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
     resolve_ca(backend, ca_path, sizeof(ca_path));
     char *ca_pem = ca_path[0] ? claw_read_file(ca_path, 8192, NULL) : NULL;
 
-    char *reply = calloc(1, CLAW_TURN_MAX + 1);
+    char *reply = claw_calloc(1, CLAW_TURN_MAX + 1);
     if (!reply) {
         ESP_LOGW(TAG, "no memory for reply buffer; this turn will not be saved");
     }
@@ -755,11 +756,11 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
      * a tool that is short of memory says so and the model adapts, whereas a
      * failed parser allocation ends the whole request.
      */
-    claw_sse_t *parser = calloc(1, sizeof(*parser));
+    claw_sse_t *parser = claw_calloc(1, sizeof(*parser));
     if (!parser) {
         const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
         free(ca_pem);
-        free(reply);
+        claw_free(reply);
         cJSON_Delete(messages);
         snprintf(res->error, sizeof(res->error),
                  "could not allocate the %u byte stream parser "
@@ -770,11 +771,11 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         return 1;
     }
 
-    stream_ctx_t *sctxp = calloc(1, sizeof(*sctxp));
+    stream_ctx_t *sctxp = claw_calloc(1, sizeof(*sctxp));
     if (!sctxp) {
-        free(parser);
+        claw_free(parser);
         free(ca_pem);
-        free(reply);
+        claw_free(reply);
         cJSON_Delete(messages);
         snprintf(res->error, sizeof(res->error),
                  claw_text("agent.agent_ask.out_memory_starting",
@@ -865,7 +866,7 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
 
 
         if (!tool_out) {
-            tool_out = malloc(CLAW_TOOL_RESULT_MAX);
+            tool_out = claw_malloc(CLAW_TOOL_RESULT_MAX);
             if (!tool_out) {
                 snprintf(res->error, sizeof(res->error),
                          claw_text("agent.agent_ask.out_memory_tool",
@@ -1004,11 +1005,11 @@ int claw_agent_ask(const char *prompt, bool verbose, claw_result_t *out)
         claw_session_rollback(session_mark);
     }
 
-    free(sctxp);
-    free(parser);
+    claw_free(sctxp);
+    claw_free(parser);
     free(ca_pem);
-    free(reply);
-    free(tool_out);
+    claw_free(reply);
+    claw_free(tool_out);
     cJSON_Delete(messages);
 
     res->elapsed_ms = (unsigned)((esp_timer_get_time() - t0) / 1000);

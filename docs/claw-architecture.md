@@ -275,6 +275,14 @@ replay:
   the body as one raw node, so their tree is never alive at the peak.
 - What remains is mostly node count: five nodes per Gemini turn, so a replay
   of many short turns costs more than its byte count.
+- claw runs inside the graphics framebuffer, lent by `rgb_display_lend_gfx()`
+  and used as a private `multi_heap` (`claw/claw_arena.c`). The fixed buffers
+  and cJSON trees (through `cJSON_InitHooks`) come from it first. With WiFi
+  and Bluetooth up, free general heap once a request is built went from
+  20 KB to 55 KB, and the lowest DMA-capable free during a request from
+  1.2-12 KB to 24 KB. The buffer is never freed, so graphics gets it back
+  whole: freeing and re-allocating it failed once the session's allocations
+  had fragmented the gap.
 - After building, claw requires 12 KB of DMA-capable memory to be free
   (`CLAW_MIN_DMA_AFTER_BUILD`) and otherwise stops with a message. With WiFi
   and Bluetooth up, 1.7 KB was measured there before these changes, and an SD
