@@ -567,7 +567,7 @@ static int cmd_config(int argc, char **argv)
             } else {
                 claw_config_mask(k_shown_keys[i], raw, shown, sizeof(shown));
             }
-            printf("  %-14s %s\n", k_shown_keys[i], shown);
+            printf("  %-22s %s\n", k_shown_keys[i], shown);
         }
         return 0;
     }
