@@ -25,6 +25,7 @@
 static const char *s_backend = "anthropic";
 static const char *s_model   = "";
 static const char *s_base    = "";
+static const char *s_thinking = "";   /* gemini.thinking_budget; "" = unset */
 
 bool claw_config_get(const char *key, char *out, size_t out_len, const char *fallback)
 {
@@ -32,6 +33,7 @@ bool claw_config_get(const char *key, char *out, size_t out_len, const char *fal
     if (strcmp(key, "backend") == 0)  v = s_backend;
     else if (strcmp(key, "model") == 0) v = s_model;
     else if (strcmp(key, "base_url") == 0) v = s_base;
+    else if (strcmp(key, "gemini.thinking_budget") == 0) v = s_thinking;
     else if (strncmp(key, "model.", 6) == 0) v = s_model;
 
     if (v && v[0]) {
@@ -234,6 +236,52 @@ static void test_gemini(void)
     cJSON_Delete(msgs);
 }
 
+/* gemini.thinking_budget: unset leaves the model's own default, so no
+ * thinkingConfig at all; set, it goes in generationConfig.thinkingConfig. */
+static cJSON *gemini_thinking_config(const char *setting)
+{
+    s_backend = "gemini"; s_model = ""; s_base = ""; s_thinking = setting;
+    const claw_backend_t *b = claw_backend_find("gemini");
+    cJSON *msgs = sample_messages();
+    cJSON *body = b->build_body(msgs);
+    cJSON_Delete(msgs);
+    cJSON *gen = cJSON_GetObjectItem(body, "generationConfig");
+    cJSON *tc = cJSON_DetachItemFromObject(gen, "thinkingConfig");
+    cJSON_Delete(body);
+    s_thinking = "";
+    return tc;
+}
+
+static void test_gemini_thinking(void)
+{
+    printf("\ngemini thinking budget\n");
+
+    cJSON *tc = gemini_thinking_config("");
+    check("unset: no thinkingConfig sent", tc == NULL, NULL);
+    cJSON_Delete(tc);
+
+    tc = gemini_thinking_config("0");
+    cJSON *budget = cJSON_GetObjectItem(tc, "thinkingBudget");
+    check("0: thinkingBudget 0 (thinking off)",
+          cJSON_IsNumber(budget) && budget->valueint == 0, NULL);
+    cJSON_Delete(tc);
+
+    tc = gemini_thinking_config("512");
+    budget = cJSON_GetObjectItem(tc, "thinkingBudget");
+    check("512: thinkingBudget 512", cJSON_IsNumber(budget) && budget->valueint == 512, NULL);
+    cJSON_Delete(tc);
+
+    tc = gemini_thinking_config("-1");
+    budget = cJSON_GetObjectItem(tc, "thinkingBudget");
+    check("-1: thinkingBudget -1 (dynamic)",
+          cJSON_IsNumber(budget) && budget->valueint == -1, NULL);
+    cJSON_Delete(tc);
+
+    tc = gemini_thinking_config("off");
+    check("non-numeric: no thinkingConfig sent", tc == NULL, NULL);
+    cJSON_Delete(tc);
+}
+
 /* A tool round appends provider-native turns to the same array; build_body must
  * pass them through rather than reinterpreting them as {role, content}. */
 static void test_native_passthrough(void)
@@ -273,6 +321,7 @@ int main(void)
     test_anthropic();
     test_openai();
     test_gemini();
+    test_gemini_thinking();
     test_native_passthrough();
 
     printf("\n");

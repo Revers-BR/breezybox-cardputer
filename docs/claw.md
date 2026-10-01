@@ -417,6 +417,7 @@ used, so nothing is lost when switching.
 | `model.<backend>` | first in catalogue | model, stored per backend |
 | `max_tokens` | 2048 | reply length cap |
 | `context_budget` | 6144 | bytes of transcript replayed per request |
+| `gemini.thinking_budget` | — (model default) | tokens Gemini may spend thinking before it answers. `0` turns thinking off for faster replies (2.5 Flash only; 2.5 Pro rejects it), `-1` is dynamic. Unset sends nothing |
 | `base_url` | — | override the endpoint |
 | `ca_file` | — | pin a root CA |
 | `timeout_ms` | 60000 | request timeout |

@@ -37,7 +37,7 @@
 /* Settings shown by `claw config show`, in display order. */
 static const char *k_shown_keys[] = {
     "backend", "model.anthropic", "model.openai", "model.gemini",
-    "max_tokens", "context_budget", "base_url", "ca_file",
+    "max_tokens", "context_budget", "gemini.thinking_budget", "base_url", "ca_file",
     "timeout_ms", "auto_approve", "store", "anthropic.key", "openai.key", "gemini.key",
 };
 

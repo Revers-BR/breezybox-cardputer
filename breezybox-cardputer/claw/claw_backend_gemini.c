@@ -14,6 +14,7 @@
 #include "claw_tools.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static void ep(char *out, size_t n)
@@ -102,6 +103,25 @@ static cJSON *body(const cJSON *messages)
     cJSON *gen = cJSON_CreateObject();
     if (gen) {
         cJSON_AddNumberToObject(gen, "maxOutputTokens", claw_config_get_int("max_tokens", 2048));
+
+        /*
+         * gemini.thinking_budget: tokens the model may spend thinking before it
+         * answers. 2.5 models think by default, which adds latency to every
+         * answer that needs it. 0 turns thinking off (2.5 Flash; 2.5 Pro
+         * rejects it), -1 is dynamic. Unset sends nothing, so the model keeps
+         * its default. A value that is not a whole number is ignored rather
+         * than read as 0, which would switch thinking off by accident.
+         */
+        char tb[16];
+        if (claw_config_get("gemini.thinking_budget", tb, sizeof(tb), NULL) && tb[0]) {
+            char *end = NULL;
+            const long budget = strtol(tb, &end, 10);
+            cJSON *tc = (end && *end == '\0') ? cJSON_CreateObject() : NULL;
+            if (tc) {
+                cJSON_AddNumberToObject(tc, "thinkingBudget", (double)budget);
+                cJSON_AddItemToObject(gen, "thinkingConfig", tc);
+            }
+        }
         cJSON_AddItemToObject(root, "generationConfig", gen);
     }
 
