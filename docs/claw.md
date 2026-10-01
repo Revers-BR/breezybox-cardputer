@@ -602,8 +602,14 @@ allocation failure inside the certificate check, not a bad certificate),
 `wifi:m f null` (WiFi could not allocate a packet buffer, so replies stall
 until the 60 s timeout), or a reset while writing to the card. `claw stats`
 prints the heap. The usual cause is WiFi and Bluetooth both being up: about
-30 KB is left after a round, against ~68 KB that a request peaks at. Reboot
-and leave Bluetooth off for long sessions, or `/new` to shrink the request.
+30 KB is left after a round, against the ~60 KB a request needs while it is
+being built. Reboot and leave Bluetooth off for long sessions, or `/new` to
+shrink the request.
+
+Since v1.4.0 claw checks first and stops with `out of memory: N KB left after
+building the request, 12 KB needed` instead of crashing. The request size
+depends on how many turns are replayed as well as their length: a session of
+many short turns ("ok", "yes") costs more than its byte count suggests.
 
 **`warning - CA file missing, using cert bundle instead`** on Gemini — the
 pinned root is not installed and the bundle cannot verify Google's chain.

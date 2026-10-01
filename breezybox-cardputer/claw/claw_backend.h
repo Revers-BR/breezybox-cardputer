@@ -76,9 +76,15 @@ typedef struct {
     void (*headers)(esp_http_client_handle_t client, const char *api_key);
 
     /* Build the request body. `messages` is a JSON array of {role, content},
-     * borrowed -- the agent loop reuses it across tool rounds, so an
-     * implementation must duplicate anything it keeps. Returns an object the
-     * caller owns. */
+     * borrowed. Returns an object the caller owns.
+     *
+     * CLAW_BODY_REFERENCES: the body may *reference* the transcript (string
+     * references, object/array references, constant keys) rather than copy
+     * it. The caller writes the body to disk and deletes it before touching
+     * `messages` again, so the references never outlive what they point to.
+     * Copying cost a second full transcript at the request's memory peak --
+     * with WiFi and Bluetooth up that was the difference between a request
+     * and a panic in the SD driver. Do not keep the body past that point. */
     cJSON *(*build_body)(const cJSON *messages);
 
     /* Text to emit for one decoded event, or NULL. Points into `obj`. */

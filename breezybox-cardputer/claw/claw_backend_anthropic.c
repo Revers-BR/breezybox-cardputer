@@ -46,13 +46,15 @@ static cJSON *body(const cJSON *messages)
         if (cJSON_IsString(role) && strcmp(role->valuestring, "system") == 0) {
             cJSON *content = cJSON_GetObjectItemCaseSensitive(m, "content");
             if (cJSON_IsString(content) && !cJSON_GetObjectItem(root, "system")) {
-                cJSON_AddStringToObject(root, "system", content->valuestring);
+                cJSON_AddItemToObjectCS(root, "system",
+                                        cJSON_CreateStringReference(content->valuestring));
             }
             continue;
         }
-        cJSON *copy = cJSON_Duplicate(m, true);
-        if (copy) {
-            cJSON_AddItemToArray(out, copy);
+        /* A reference, not a copy: see CLAW_BODY_REFERENCES in claw_backend.h. */
+        cJSON *ref = cJSON_CreateObjectReference(m->child);
+        if (ref) {
+            cJSON_AddItemToArray(out, ref);
         }
     }
     cJSON_AddItemToObject(root, "messages", out);

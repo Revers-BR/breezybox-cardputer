@@ -254,6 +254,32 @@ the next prompt fail to get a 512-byte DMA buffer for the SD card.
 
 `claw ask -v` prints the per-stage times for each round.
 
+## Request memory peak
+
+The request's memory peak is while its body is built as a cJSON tree, before
+it is streamed to the card. Measured on a 12 KB Gemini request with a 90-turn
+replay:
+
+| Part | Before | Now |
+|---|---|---|
+| Fixed buffers (reply, stream parser, tool-argument buffer, CA) | 24 KB | 24 KB |
+| Transcript and system prompt | 32 KB (copied) | ~21 KB (referenced) |
+| Tool declarations | 23 KB (tree) | 5 KB (raw text) |
+
+- Backends reference the transcript instead of copying it
+  (`CLAW_BODY_REFERENCES` in `claw_backend.h`): string references, object and
+  array references for native tool turns, constant keys. Host tests check the
+  written file is byte-identical to cJSON's print and the transcript is
+  unchanged afterwards.
+- Tool declarations are built and printed before the transcript, and go into
+  the body as one raw node, so their tree is never alive at the peak.
+- What remains is mostly node count: five nodes per Gemini turn, so a replay
+  of many short turns costs more than its byte count.
+- After building, claw requires 12 KB of DMA-capable memory to be free
+  (`CLAW_MIN_DMA_AFTER_BUILD`) and otherwise stops with a message. With WiFi
+  and Bluetooth up, 1.7 KB was measured there before these changes, and an SD
+  access then panicked inside ESP-IDF's SPI driver.
+
 ## Current state
 
 - `packages/espclaw/` is the canonical source.

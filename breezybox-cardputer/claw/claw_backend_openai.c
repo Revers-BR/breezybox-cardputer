@@ -55,7 +55,8 @@ static cJSON *body(const cJSON *messages)
     cJSON_AddNumberToObject(root,
                             wants_max_completion(model) ? "max_completion_tokens" : "max_tokens",
                             limit);
-    cJSON_AddItemToObject(root, "messages", cJSON_Duplicate(messages, true));
+    /* A reference, not a copy: see CLAW_BODY_REFERENCES in claw_backend.h. */
+    cJSON_AddItemToObjectCS(root, "messages", cJSON_CreateArrayReference(messages->child));
     return root;
 }
 

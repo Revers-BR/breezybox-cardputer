@@ -65,9 +65,10 @@ static cJSON *body(const cJSON *messages)
          */
         cJSON *native_parts = cJSON_GetObjectItemCaseSensitive(m, "parts");
         if (cJSON_IsArray(native_parts)) {
-            cJSON *copy = cJSON_Duplicate(m, true);
-            if (copy) {
-                cJSON_AddItemToArray(contents, copy);
+            /* A reference, not a copy: see CLAW_BODY_REFERENCES in claw_backend.h. */
+            cJSON *ref = cJSON_CreateObjectReference(m->child);
+            if (ref) {
+                cJSON_AddItemToArray(contents, ref);
             }
             continue;
         }
@@ -77,7 +78,7 @@ static cJSON *body(const cJSON *messages)
 
         if (strcmp(r, "system") == 0) {
             if (!sys_text) {
-                sys_text = cJSON_CreateString(c);
+                sys_text = cJSON_CreateStringReference(c);
             }
             continue;
         }
@@ -91,10 +92,12 @@ static cJSON *body(const cJSON *messages)
             cJSON_Delete(part);
             continue;
         }
-        cJSON_AddStringToObject(part, "text", c);
+        /* Text by reference and keys as constants: see CLAW_BODY_REFERENCES. */
+        cJSON_AddItemToObjectCS(part, "text", cJSON_CreateStringReference(c));
         cJSON_AddItemToArray(parts, part);
-        cJSON_AddStringToObject(turn, "role", strcmp(r, "assistant") == 0 ? "model" : "user");
-        cJSON_AddItemToObject(turn, "parts", parts);
+        cJSON_AddItemToObjectCS(turn, "role", cJSON_CreateStringReference(
+                                    strcmp(r, "assistant") == 0 ? "model" : "user"));
+        cJSON_AddItemToObjectCS(turn, "parts", parts);
         cJSON_AddItemToArray(contents, turn);
     }
 

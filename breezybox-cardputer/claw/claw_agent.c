@@ -72,10 +72,12 @@ typedef struct {
 static void heap_line(const char *label)
 {
     const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-    printf("[heap %s: free %u, min %u, largest %u]\n", label,
+    printf("[heap %s: free %u, min %u, largest %u, dma free %u, dma min %u]\n", label,
            (unsigned)heap_caps_get_free_size(caps),
            (unsigned)heap_caps_get_minimum_free_size(caps),
-           (unsigned)heap_caps_get_largest_free_block(caps));
+           (unsigned)heap_caps_get_largest_free_block(caps),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+           (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_DMA));
 }
 
 static bool network_ready(void)
@@ -204,6 +206,13 @@ static void on_sse_event(const char *event, const char *data, void *vctx)
  * next prompt failed to allocate. An open connection itself holds ~12 KB. */
 #define CLAW_KEEPALIVE_MIN_FREE (40 * 1024)
 
+/* DMA-capable memory that must be left once a request is built, for the SD
+ * write that follows and for WiFi packets arriving meanwhile. */
+#define CLAW_MIN_DMA_AFTER_BUILD (12 * 1024)
+
+/* Starting size for printing the tool declarations; cJSON grows it if needed. */
+#define CLAW_TOOLS_PREBUFFER 4096
+
 static struct {
     esp_http_client_handle_t client;
     char  url[256];
@@ -281,15 +290,92 @@ static int claw_round(const claw_backend_t *backend, const cJSON *messages,
                       const char *ca_pem, claw_sse_t *parser)
 {
     const int64_t t_start = esp_timer_get_time();
+
+    /*
+     * Tool declarations go into the body as text, not as a tree.
+     *
+     * As a cJSON tree they cost 23 KB of heap for a few KB of JSON, and they
+     * were added after the transcript, so both trees were alive at the peak:
+     * 55 KB for a 12 KB request. With WiFi and Bluetooth up that peak left
+     * nothing, and the next SD access could not get a DMA buffer and panicked
+     * inside the SPI driver. Built first, printed, and freed, the tree is gone
+     * before the transcript is built, and the body holds one raw node per key.
+     * The JSON sent is unchanged. If printing fails, fall back to the tree.
+     */
+    cJSON *tools_holder = NULL;
+    size_t tools_text = 0;
+    if (backend->add_tools) {
+        tools_holder = cJSON_CreateObject();
+        if (tools_holder) {
+            backend->add_tools(tools_holder);
+            for (cJSON *it = tools_holder->child; it; it = it->next) {
+                char *text = cJSON_PrintBuffered(it, CLAW_TOOLS_PREBUFFER, false);
+                if (!text) {
+                    cJSON_Delete(tools_holder);
+                    tools_holder = NULL;   /* fall back below */
+                    break;
+                }
+                cJSON *raw = cJSON_CreateRaw(text);
+                tools_text += strlen(text);
+                free(text);
+                if (raw) {
+                    raw->string = strdup(it->string);   /* ViaPointer keeps no key */
+                }
+                if (!raw || !raw->string) {
+                    cJSON_Delete(raw);
+                    cJSON_Delete(tools_holder);
+                    tools_holder = NULL;
+                    break;
+                }
+                /* Swap the tree for its text in place. */
+                cJSON_ReplaceItemViaPointer(tools_holder, it, raw);
+                it = raw;
+            }
+        }
+    }
+
     cJSON *body = backend->build_body(messages);
     if (!body) {
+        cJSON_Delete(tools_holder);
         snprintf(res->error, sizeof(res->error),
                  claw_text("agent.write_body.could_build_request",
                            "could not build request body"));
         return 1;
     }
-    if (backend->add_tools) {
+    if (tools_holder) {
+        cJSON *it;
+        while ((it = tools_holder->child) != NULL) {
+            cJSON_DetachItemViaPointer(tools_holder, it);
+            cJSON_AddItemToObject(body, it->string, it);
+        }
+        cJSON_Delete(tools_holder);
+    } else if (backend->add_tools) {
         backend->add_tools(body);
+    }
+    if (verbose) {
+        heap_line("request built");
+        printf("[tools: %u bytes of JSON]\n", (unsigned)tools_text);
+    }
+
+    /*
+     * This is the request's memory peak. Writing it to the card needs DMA
+     * buffers, and so does every WiFi packet that arrives meanwhile. With
+     * WiFi and Bluetooth both up, 1.7 KB of DMA memory was measured left here;
+     * a little less and the SD driver's failed allocation panicked inside
+     * ESP-IDF's SPI driver. Stop with a reason instead.
+     */
+    const size_t dma_free = heap_caps_get_free_size(MALLOC_CAP_DMA);
+    if (dma_free < CLAW_MIN_DMA_AFTER_BUILD) {
+        cJSON_Delete(body);
+        snprintf(res->error, sizeof(res->error),
+                 "out of memory: %u KB left after building the request, "
+                 "%u KB needed. Bluetooth holds ~55 KB; /new shrinks requests",
+                 (unsigned)(dma_free / 1024),
+                 (unsigned)(CLAW_MIN_DMA_AFTER_BUILD / 1024));
+        /* Not a connection failure: 0 keeps the caller's network retry loop,
+         * which only retries status -1, from trying again unchanged. */
+        res->status = 0;
+        return 1;
     }
 
     /*

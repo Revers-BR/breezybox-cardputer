@@ -16,8 +16,10 @@
 #include "claw_config.h"
 #include "claw_models.h"
 #include "claw_tools.h"
+#include "claw_json_write.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ------------------------------------------------------------------ stubs -- */
@@ -316,6 +318,65 @@ static void test_native_passthrough(void)
     cJSON_Delete(msgs);
 }
 
+/*
+ * Bodies reference the transcript rather than copying it (CLAW_BODY_REFERENCES
+ * in claw_backend.h). Two things must hold for that to be safe: the file the
+ * streaming writer produces is exactly what cJSON would print, reference nodes
+ * included, and building and deleting a body leaves `messages` untouched.
+ */
+static char *read_all(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *buf = malloc((size_t)n + 1);
+    if (buf) {
+        buf[fread(buf, 1, (size_t)n, f)] = '\0';
+    }
+    fclose(f);
+    return buf;
+}
+
+static void test_body_references(void)
+{
+    printf("\nbodies reference the transcript safely\n");
+    const char *names[] = { "anthropic", "openai", "gemini" };
+    for (size_t i = 0; i < 3; i++) {
+        s_backend = names[i]; s_model = ""; s_base = "";
+        const claw_backend_t *b = claw_backend_find(names[i]);
+
+        cJSON *msgs = sample_messages();
+        if (b->append_tool_result) {
+            cJSON *args = cJSON_CreateObject();
+            cJSON_AddStringToObject(args, "path", "/sd/x");
+            b->append_tool_result(msgs, "read_file", "call_1", args, "file contents");
+            cJSON_Delete(args);
+        }
+        char *before = cJSON_PrintUnformatted(msgs);
+
+        cJSON *body = b->build_body(msgs);
+        b->add_tools(body);
+        char *printed = cJSON_PrintUnformatted(body);
+        const char *path = "/tmp/claw_body_ref_test.json";
+        long n = claw_json_write_file(body, path);
+        char *written = read_all(path);
+        char label[96];
+        snprintf(label, sizeof(label), "%s: written file matches cJSON's print", names[i]);
+        check(label, n > 0 && written && printed && strcmp(written, printed) == 0, NULL);
+        cJSON_Delete(body);
+
+        char *after = cJSON_PrintUnformatted(msgs);
+        snprintf(label, sizeof(label), "%s: transcript unchanged by build and delete", names[i]);
+        check(label, before && after && strcmp(before, after) == 0, NULL);
+
+        free(before); free(after); free(printed); free(written);
+        cJSON_Delete(msgs);
+        remove(path);
+    }
+}
+
 int main(void)
 {
     test_anthropic();
@@ -323,6 +384,7 @@ int main(void)
     test_gemini();
     test_gemini_thinking();
     test_native_passthrough();
+    test_body_references();
 
     printf("\n");
     if (failures == 0) {

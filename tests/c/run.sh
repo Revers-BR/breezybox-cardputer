@@ -47,6 +47,7 @@ if [ -f "$CJSON/cJSON.c" ]; then
         tests/c/test_claw_backends.c \
         "$SRC/claw_backend.c" "$SRC/claw_backend_anthropic.c" \
         "$SRC/claw_backend_openai.c" "$SRC/claw_backend_gemini.c" \
+        "$SRC/claw_json_write.c" \
         "$CJSON/cJSON.c" -o "$OUT/backends"
     "$OUT/backends"
 else
