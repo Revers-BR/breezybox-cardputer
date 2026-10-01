@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -734,6 +735,7 @@ static esp_err_t breezybox_init_common(void)
 // Linenoise-based REPL task for stdio mode
 static char s_history_path[80];
 static int  s_history_enabled = -1;   /* -1 = not yet read from NVS */
+static int  s_history_file_lines = -1; /* -1 = not counted yet */
 
 static bool history_enabled(void)
 {
@@ -768,6 +770,7 @@ bool breezybox_history_set_enabled(bool on)
     }
     s_history_enabled = on ? 1 : 0;
     s_history_path[0] = '\0';                  /* re-resolve */
+    s_history_file_lines = -1;
     return true;
 }
 
@@ -814,6 +817,95 @@ const char *breezybox_history_path(void)
     return s_history_path;
 }
 
+/*
+ * History is appended one line per command and trimmed in place, never
+ * rewritten with fopen("w").
+ *
+ * On FAT, opening an existing file for truncation makes FatFs reuse that
+ * file's clusters by moving its free-cluster search hint (last_clst) back to
+ * the file's first cluster. linenoiseHistorySave() did that after every
+ * command, so the next new file anywhere on the card searched the FAT from the
+ * history file's position. On a 32 GB card whose free space starts 1.2 million
+ * clusters later, that was a 4.7 MB FAT read over SPI: 10.4 s to create any
+ * file. Appending, and truncating with ftruncate(), leave the hint alone.
+ */
+static int history_count_lines(FILE *f)
+{
+    int n = 0;
+    int c;
+    while ((c = fgetc(f)) != EOF) {
+        if (c == '\n') {
+            n++;
+        }
+    }
+    return n;
+}
+
+/* Keep the last HISTORY_MAX_LINES lines, rewriting the file in place. */
+static void history_trim(const char *path)
+{
+    FILE *f = fopen(path, "r+b");
+    if (!f) {
+        s_history_file_lines = 0;
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    char *buf = (size > 0) ? malloc((size_t)size) : NULL;
+    if (!buf) {
+        fclose(f);
+        return;
+    }
+    fseek(f, 0, SEEK_SET);
+    size = (long)fread(buf, 1, (size_t)size, f);
+
+    int lines = 0;
+    for (long i = 0; i < size; ++i) {
+        if (buf[i] == '\n') {
+            lines++;
+        }
+    }
+    if (lines > HISTORY_MAX_LINES) {
+        int skip = lines - HISTORY_MAX_LINES;
+        long start = 0;
+        while (start < size && skip > 0) {
+            if (buf[start++] == '\n') {
+                skip--;
+            }
+        }
+        fseek(f, 0, SEEK_SET);
+        fwrite(buf + start, 1, (size_t)(size - start), f);
+        fflush(f);
+        ftruncate(fileno(f), size - start);
+        lines = HISTORY_MAX_LINES;
+    }
+    free(buf);
+    fclose(f);
+    s_history_file_lines = lines;
+}
+
+static void history_append(const char *path, const char *line)
+{
+    if (s_history_file_lines < 0) {
+        FILE *in = fopen(path, "r");
+        s_history_file_lines = in ? history_count_lines(in) : 0;
+        if (in) {
+            fclose(in);
+        }
+    }
+    FILE *f = fopen(path, "a");
+    if (!f) {
+        return;
+    }
+    fprintf(f, "%s\n", line);
+    fclose(f);
+    /* Trim at twice the limit, so the in-place rewrite happens once every
+     * HISTORY_MAX_LINES commands rather than on every one. */
+    if (++s_history_file_lines > 2 * HISTORY_MAX_LINES) {
+        history_trim(path);
+    }
+}
+
 static void stdio_repl_task(void *arg)
 {
     // Skip probe for now - our VFS console handles terminal queries internally
@@ -844,14 +936,13 @@ static void stdio_repl_task(void *arg)
         
         // Skip empty lines
         if (strlen(line) > 0) {
-            linenoiseHistoryAdd(line);
-            {
+            if (linenoiseHistoryAdd(line) == 1) {
                 const char *hp = breezybox_history_path();
                 if (hp) {
                     /* Failure here is not worth interrupting the shell for:
                      * a missing card or a full disk should not stop you
                      * running commands. */
-                    linenoiseHistorySave(hp);
+                    history_append(hp, line);
                 }
             }
             breezybox_exec(line);
