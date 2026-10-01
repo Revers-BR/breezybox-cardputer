@@ -3,7 +3,19 @@
  *
  * The original component targeted a 1024x600 RGB panel with DMA bounce buffers.
  * For Cardputer ADV we keep the same public API, but render a compact text mode
- * into a framebuffer and push it to the ST7789 SPI panel at a steady refresh rate.
+ * and push it to the ST7789 SPI panel at a steady refresh rate.
+ *
+ * The panel is fed in horizontal strips rather than from a full-screen copy.
+ * A 240x135 RGB565 frame is 64.8 KB of DMA memory, which was the largest
+ * single allocation in the firmware and the reason WiFi and Bluetooth could
+ * not run together; two strips of STRIP_LINES lines are 7.7 KB.
+ *
+ * Two strips so one can be filled while the other is on the wire. The SPI
+ * panel IO drains every queued transfer before it starts the next
+ * draw_bitmap (tx_param and tx_color both wait on num_trans_inflight), so at
+ * most one transfer is in flight and it is always the one queued last: the
+ * other strip is free to write. s_strip_lock stops the refresh task and the
+ * direct-draw calls from interleaving, which would break that alternation.
  */
 
 #include "rgb_display.h"
@@ -17,6 +29,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #define PROGMEM
 #include "glcdfont.h"
@@ -38,6 +51,7 @@ static const char *TAG = "display";
 #define TEXT_ROWS               DISPLAY_ROWS
 #define CURSOR_HEIGHT           2
 #define REFRESH_PERIOD_MS       33
+#define STRIP_LINES             8   /* must be >= FONT_HEIGHT: a text row is one strip */
 
 static lcd_cell_t *s_display_buffer;
 static esp_lcd_panel_io_handle_t s_panel_io;
@@ -45,7 +59,9 @@ static esp_lcd_panel_handle_t s_panel;
 static const board_display_config_t *s_cfg;
 static screen_mode_t s_screen_mode = SM_TEXT;
 static const rgb_display_callbacks_t *s_callbacks;
-static uint16_t *s_panel_buffer;
+static uint16_t *s_strip[2];
+static int s_strip_last = 1;   /* index of the strip queued most recently */
+static SemaphoreHandle_t s_strip_lock;
 static uint8_t *s_gfx_buffer;
 static int s_gfx_width;
 static int s_gfx_height;
@@ -108,11 +124,11 @@ static void rebuild_text_palette(void)
     }
 }
 
-static void clear_framebuffer(uint16_t color)
+/* The strip that is not on the wire. Call with s_strip_lock held. */
+static uint16_t *strip_next(void)
 {
-    for (int i = 0; i < lcd_draw_width() * lcd_draw_height(); ++i) {
-        s_panel_buffer[i] = color;
-    }
+    s_strip_last ^= 1;
+    return s_strip[s_strip_last];
 }
 
 static esp_err_t ensure_gfx_buffer(size_t bytes)
@@ -178,45 +194,83 @@ static void apply_backlight_level(uint8_t level)
     s_backlight_level = level;
 }
 
-static void render_text_frame(void)
+static void render_text_line(uint16_t *dst, int y, bool blink_on)
 {
-    const int blink_on = ((s_frame_count / 15U) & 1U) != 0;
+    const int width = lcd_draw_width();
+    const int ty = y - text_offset_y();
 
-    clear_framebuffer(s_text_colors[0]);
-    if (!s_display_buffer) {
+    if (!s_display_buffer || ty < 0 || ty >= TEXT_ROWS * FONT_HEIGHT) {
+        const uint16_t bg = (uint16_t)s_text_colors[0];
+        for (int x = 0; x < width; ++x) {
+            dst[x] = bg;
+        }
         return;
     }
 
-    for (int row = 0; row < TEXT_ROWS; ++row) {
-        const lcd_cell_t *cell_row = &s_display_buffer[row * TEXT_COLS];
-        const int pixel_y = text_offset_y() + (row * FONT_HEIGHT);
+    const int row = ty / FONT_HEIGHT;
+    const int glyph_row = ty % FONT_HEIGHT;
+    const int cursor_col = (blink_on && row == s_cursor_row &&
+                            glyph_row >= FONT_HEIGHT - CURSOR_HEIGHT) ? s_cursor_col : -1;
+    const lcd_cell_t *cell_row = &s_display_buffer[row * TEXT_COLS];
 
-        for (int col = 0; col < TEXT_COLS; ++col) {
-            lcd_cell_t cell = cell_row[col];
-            uint16_t fg = (uint16_t)s_text_colors[LCD_ATTR_FG(cell.attr)];
-            uint16_t bg = (uint16_t)s_text_colors[LCD_ATTR_BG(cell.attr)];
-            const int pixel_x = col * FONT_WIDTH;
+    for (int col = 0; col < TEXT_COLS; ++col) {
+        const lcd_cell_t cell = cell_row[col];
+        const uint16_t fg = (uint16_t)s_text_colors[LCD_ATTR_FG(cell.attr)];
+        const uint16_t bg = (uint16_t)s_text_colors[LCD_ATTR_BG(cell.attr)];
+        uint16_t *px = &dst[col * FONT_WIDTH];
 
-            for (int glyph_row = 0; glyph_row < FONT_HEIGHT; ++glyph_row) {
-                uint16_t *dest = &s_panel_buffer[(pixel_y + glyph_row) * lcd_draw_width() + pixel_x];
-                for (int glyph_col = 0; glyph_col < FONT_BITMAP_WIDTH; ++glyph_col) {
-                    uint8_t bits = glyph_col_bits((uint8_t)cell.ch, glyph_col);
-                    dest[glyph_col] = (bits & (1U << glyph_row)) ? fg : bg;
-                }
-                dest[FONT_BITMAP_WIDTH] = bg;
+        if (col == cursor_col) {
+            for (int x = 0; x < FONT_WIDTH; ++x) {
+                px[x] = fg;
             }
+            continue;
+        }
+        for (int glyph_col = 0; glyph_col < FONT_BITMAP_WIDTH; ++glyph_col) {
+            const uint8_t bits = glyph_col_bits((uint8_t)cell.ch, glyph_col);
+            px[glyph_col] = (bits & (1U << glyph_row)) ? fg : bg;
+        }
+        px[FONT_BITMAP_WIDTH] = bg;
+    }
+    for (int x = TEXT_COLS * FONT_WIDTH; x < width; ++x) {
+        dst[x] = (uint16_t)s_text_colors[0];
+    }
+}
 
-            if (blink_on && row == s_cursor_row && col == s_cursor_col) {
-                uint16_t *dest = &s_panel_buffer[(pixel_y + FONT_HEIGHT - CURSOR_HEIGHT) * lcd_draw_width() + pixel_x];
-                for (int y = 0; y < CURSOR_HEIGHT; ++y) {
-                    for (int x = 0; x < FONT_WIDTH; ++x) {
-                        dest[x] = fg;
-                    }
-                    dest += lcd_draw_width();
-                }
+static void render_gfx_line(uint16_t *dst, int y)
+{
+    const int src_w = s_gfx_width;
+    const int src_h = s_gfx_height;
+    const int draw_width = lcd_draw_width();
+    const int sy = (y * src_h) / lcd_draw_height();
+    const uint8_t *src_row = &s_gfx_buffer[sy * src_w];
+
+    for (int x = 0; x < draw_width; ++x) {
+        const int sx = (x * src_w) / draw_width;
+        dst[x] = s_vga_palette[src_row[sx]];
+    }
+}
+
+/* Render and send one whole frame, STRIP_LINES lines at a time. */
+static void push_frame(bool gfx)
+{
+    const int width = lcd_draw_width();
+    const int height = lcd_draw_height();
+    const bool blink_on = ((s_frame_count / 15U) & 1U) != 0;
+
+    xSemaphoreTake(s_strip_lock, portMAX_DELAY);
+    for (int y0 = 0; y0 < height; y0 += STRIP_LINES) {
+        const int lines = (height - y0 < STRIP_LINES) ? (height - y0) : STRIP_LINES;
+        uint16_t *strip = strip_next();
+        for (int i = 0; i < lines; ++i) {
+            if (gfx) {
+                render_gfx_line(&strip[i * width], y0 + i);
+            } else {
+                render_text_line(&strip[i * width], y0 + i, blink_on);
             }
         }
+        esp_lcd_panel_draw_bitmap(s_panel, 0, y0, width, y0 + lines, strip);
     }
+    xSemaphoreGive(s_strip_lock);
 }
 
 static void render_text_cell_to_buffer(uint16_t *dst, lcd_cell_t cell, bool cursor)
@@ -250,10 +304,13 @@ static void direct_draw_cell_internal(int col, int row, lcd_cell_t cell, bool cu
         return;
     }
 
-    uint16_t tile[FONT_WIDTH * FONT_HEIGHT];
     const int pixel_x = col * FONT_WIDTH;
     const int pixel_y = text_offset_y() + (row * FONT_HEIGHT);
 
+    /* The tile goes through a strip rather than the stack: the transfer is
+     * still reading it after draw_bitmap returns. */
+    xSemaphoreTake(s_strip_lock, portMAX_DELAY);
+    uint16_t *tile = strip_next();
     render_text_cell_to_buffer(tile, cell, cursor);
     esp_lcd_panel_draw_bitmap(s_panel,
                               pixel_x,
@@ -261,16 +318,17 @@ static void direct_draw_cell_internal(int col, int row, lcd_cell_t cell, bool cu
                               pixel_x + FONT_WIDTH,
                               pixel_y + FONT_HEIGHT,
                               tile);
+    xSemaphoreGive(s_strip_lock);
 }
 
 static void direct_draw_row_internal(const lcd_cell_t *row_cells, int row, int cursor_col)
 {
-    enum { STRIP_CAPACITY = LCD_MAX_DRAW_WIDTH * FONT_HEIGHT };
     if (!s_panel || !row_cells || row < 0 || row >= TEXT_ROWS) {
         return;
     }
 
-    static uint16_t strip[STRIP_CAPACITY];
+    xSemaphoreTake(s_strip_lock, portMAX_DELAY);
+    uint16_t *strip = strip_next();
     const int draw_width = lcd_draw_width();
     const int pixel_y = text_offset_y() + (row * FONT_HEIGHT);
 
@@ -290,32 +348,18 @@ static void direct_draw_row_internal(const lcd_cell_t *row_cells, int row, int c
                               draw_width,
                               pixel_y + FONT_HEIGHT,
                               strip);
+    xSemaphoreGive(s_strip_lock);
 }
 
 static void refresh_task(void *arg)
 {
     while (1) {
-        if (s_screen_mode == SM_TEXT && s_panel && s_panel_buffer && s_text_refresh_enabled) {
+        if (s_screen_mode == SM_TEXT && s_panel && s_text_refresh_enabled) {
             s_frame_count++;
-            render_text_frame();
-            esp_lcd_panel_draw_bitmap(s_panel, 0, 0, lcd_draw_width(), lcd_draw_height(), s_panel_buffer);
+            push_frame(false);
         }
-        else if (s_screen_mode != SM_TEXT && s_panel && s_panel_buffer && s_gfx_buffer) {
-            const int src_w = s_gfx_width;
-            const int src_h = s_gfx_height;
-            const int draw_width = lcd_draw_width();
-            const int draw_height = lcd_draw_height();
-            for (int y = 0; y < draw_height; ++y) {
-                const int sy = (y * src_h) / draw_height;
-                const uint8_t *src_row = &s_gfx_buffer[sy * src_w];
-                uint16_t *dst_row = &s_panel_buffer[y * draw_width];
-
-                for (int x = 0; x < draw_width; ++x) {
-                    const int sx = (x * src_w) / draw_width;
-                    dst_row[x] = s_vga_palette[src_row[sx]];
-                }
-            }
-            esp_lcd_panel_draw_bitmap(s_panel, 0, 0, draw_width, draw_height, s_panel_buffer);
+        else if (s_screen_mode != SM_TEXT && s_panel && s_gfx_buffer) {
+            push_frame(true);
         }
         vTaskDelay(pdMS_TO_TICKS(REFRESH_PERIOD_MS));
     }
@@ -357,7 +401,7 @@ void rgb_display_init(void)
         .miso_io_num = -1,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = s_cfg->draw_width * s_cfg->draw_height * sizeof(uint16_t),
+        .max_transfer_sz = s_cfg->draw_width * STRIP_LINES * sizeof(uint16_t),
     };
 
     esp_lcd_panel_io_spi_config_t io_config = {
@@ -420,11 +464,15 @@ void rgb_display_init(void)
 
     ESP_ERROR_CHECK(board_display_power_init());
 
-    s_panel_buffer = heap_caps_malloc(
-        s_cfg->draw_width * s_cfg->draw_height * sizeof(uint16_t),
-        MALLOC_CAP_DMA | MALLOC_CAP_8BIT
-    );
-    ESP_ERROR_CHECK(s_panel_buffer ? ESP_OK : ESP_ERR_NO_MEM);
+    for (int i = 0; i < 2; ++i) {
+        s_strip[i] = heap_caps_malloc(
+            s_cfg->draw_width * STRIP_LINES * sizeof(uint16_t),
+            MALLOC_CAP_DMA | MALLOC_CAP_8BIT
+        );
+        ESP_ERROR_CHECK(s_strip[i] ? ESP_OK : ESP_ERR_NO_MEM);
+    }
+    s_strip_lock = xSemaphoreCreateMutex();
+    ESP_ERROR_CHECK(s_strip_lock ? ESP_OK : ESP_ERR_NO_MEM);
 
     ESP_ERROR_CHECK(spi_bus_initialize((spi_host_device_t)s_cfg->spi_host, &buscfg, SPI_DMA_CH_AUTO));
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)s_cfg->spi_host, &io_config, &s_panel_io));
@@ -437,8 +485,7 @@ void rgb_display_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(s_panel, s_cfg->mirror_x, s_cfg->mirror_y));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel, true));
 
-    clear_framebuffer(s_cga_colors[0]);
-    ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(s_panel, 0, 0, s_cfg->draw_width, s_cfg->draw_height, s_panel_buffer));
+    push_frame(false);   /* no text buffer yet, so this clears the panel */
     apply_backlight_level(255);
 
     if (!s_refresh_task) {
@@ -486,7 +533,7 @@ void rgb_display_direct_text_end(void)
 
 void rgb_display_direct_text_redraw(const lcd_cell_t *cells, int cursor_col, int cursor_row)
 {
-    if (!cells || !s_panel || !s_panel_buffer) {
+    if (!cells || !s_panel) {
         return;
     }
 
@@ -497,8 +544,7 @@ void rgb_display_direct_text_redraw(const lcd_cell_t *cells, int cursor_col, int
     s_display_buffer = (lcd_cell_t *)cells;
     s_cursor_col = cursor_col;
     s_cursor_row = cursor_row;
-    render_text_frame();
-    esp_lcd_panel_draw_bitmap(s_panel, 0, 0, lcd_draw_width(), lcd_draw_height(), s_panel_buffer);
+    push_frame(false);
 
     s_display_buffer = (lcd_cell_t *)saved;
     s_cursor_col = saved_col;
